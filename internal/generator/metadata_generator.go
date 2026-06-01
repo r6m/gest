@@ -188,13 +188,24 @@ func writeRouteMetadata(buffer *bytes.Buffer, route Route) {
 }
 
 func writeHandlerMetadata(buffer *bytes.Buffer, route Route) {
-	if route.RequestType != "" || route.ResponseType != "" {
-		buffer.WriteString("\t\t\t\tHandler: nil,\n")
-		return
-	}
-	buffer.WriteString("\t\t\t\tHandler: c.")
+	buffer.WriteString("\t\t\t\tHandler: gest.JSON(c.")
 	buffer.WriteString(route.HandlerName)
-	buffer.WriteString(",\n")
+	if status, ok := successStatus(route.Statuses); ok {
+		buffer.WriteString(", gest.Status(")
+		buffer.WriteString(strconv.Itoa(status))
+		buffer.WriteString(")")
+	}
+	buffer.WriteString("),\n")
+}
+
+func successStatus(statuses []int) (int, bool) {
+	for _, status := range statuses {
+		if status >= 200 && status < 300 {
+			return status, true
+		}
+	}
+
+	return 0, false
 }
 
 func writeTypeMetadata(buffer *bytes.Buffer, field string, typeName string) {

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -57,7 +58,7 @@ func (c *UserController) GestController() gest.ControllerDefinition {
 				Name:     "Find",
 				Method:   "GET",
 				Path:     "/:id",
-				Handler:  nil,
+				Handler:  gest.JSON(c.Find, gest.Status(200)),
 				Request:  (*FindUserRequest)(nil),
 				Response: (*FindUserResponse)(nil),
 				Statuses: []int{200, 404},
@@ -119,7 +120,7 @@ func (c *UserController) GestController() gest.ControllerDefinition {
 				Name:    "List",
 				Method:  "GET",
 				Path:    "/",
-				Handler: c.List,
+				Handler: gest.JSON(c.List),
 			},
 		},
 	}
@@ -134,7 +135,7 @@ func (c *ReportController) GestController() gest.ControllerDefinition {
 				Name:     "Create",
 				Method:   "POST",
 				Path:     "/",
-				Handler:  c.Create,
+				Handler:  gest.JSON(c.Create, gest.Status(201)),
 				Statuses: []int{201},
 			},
 		},
@@ -176,6 +177,88 @@ func TestGenerateMetadataFilesStableAcrossRepeatedGeneration(t *testing.T) {
 	assertGeneratedPath(t, root, first[1], "z/fixture_gest.gen.go")
 }
 
+func TestGenerateMetadataFilesTypedRouteEmitsJSONWithoutStatusOption(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+import "github.com/r6m/gest"
+
+// @Controller("/users")
+type UserController struct{}
+
+type FindUserRequest struct{}
+type FindUserResponse struct{}
+
+// @Get("/:id")
+func (c *UserController) Find(ctx *gest.Context, req *FindUserRequest) (*FindUserResponse, error) {
+	return nil, nil
+}
+`,
+	})
+
+	files := generateFixtureMetadata(t, root)
+	content := string(files[0].Content)
+	assertContains(t, content, "Handler:  gest.JSON(c.Find),")
+	assertContains(t, content, "Request:  (*FindUserRequest)(nil),")
+	assertContains(t, content, "Response: (*FindUserResponse)(nil),")
+	assertNotContains(t, content, "gest.Status(")
+}
+
+func TestGenerateMetadataFilesMultipleStatusesChooseFirstSuccessStatus(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+import "github.com/r6m/gest"
+
+// @Controller("/users")
+type UserController struct{}
+
+type FindUserRequest struct{}
+type FindUserResponse struct{}
+
+// @Get("/:id")
+// @Status(404)
+// @Status(202)
+// @Status(201)
+func (c *UserController) Find(ctx *gest.Context, req *FindUserRequest) (*FindUserResponse, error) {
+	return nil, nil
+}
+`,
+	})
+
+	files := generateFixtureMetadata(t, root)
+	content := string(files[0].Content)
+	assertContains(t, content, "Handler:  gest.JSON(c.Find, gest.Status(202)),")
+	assertContains(t, content, "Statuses: []int{404, 202, 201},")
+}
+
+func TestGenerateMetadataFilesContextErrorHandlerUsesJSONWrapper(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+import "github.com/r6m/gest"
+
+// @Controller("/users")
+type UserController struct{}
+
+// @Delete("/:id")
+// @Status(204)
+func (c *UserController) Delete(ctx *gest.Context) error {
+	return nil
+}
+`,
+	})
+
+	files := generateFixtureMetadata(t, root)
+	content := string(files[0].Content)
+	assertContains(t, content, "Handler:  gest.JSON(c.Delete, gest.Status(204)),")
+	assertNotContains(t, content, "Request:")
+	assertNotContains(t, content, "Response:")
+}
+
 func TestGenerateMetadataFilesGeneratedFileCompiles(t *testing.T) {
 	root := newFixture(t, map[string]string{
 		"go.mod": "module example.test/app\n\ngo 1.26.2\n\nrequire (\n\tgithub.com/go-chi/chi/v5 v5.3.0\n\tgithub.com/r6m/gest v0.0.0\n)\n\nreplace github.com/r6m/gest => " + filepath.ToSlash(projectRoot(t)) + "\n",
@@ -188,8 +271,22 @@ import "github.com/r6m/gest"
 // @Controller("/users")
 type UserController struct{}
 
+type FindUserRequest struct {
+	ID string ` + "`param:\"id\"`" + `
+}
+type FindUserResponse struct {
+	ID string ` + "`json:\"id\"`" + `
+}
+
 // @Get("/")
 func (c *UserController) List(ctx *gest.Context) error { return nil }
+
+// @Get("/:id")
+// @Status(200)
+// @Status(404)
+func (c *UserController) Find(ctx *gest.Context, req *FindUserRequest) (*FindUserResponse, error) {
+	return &FindUserResponse{ID: req.ID}, nil
+}
 `,
 	})
 	files := generateFixtureMetadata(t, root)
@@ -345,6 +442,22 @@ func assertNoInit(t *testing.T, content []byte) {
 
 	if bytes.Contains(content, []byte("func init(")) {
 		t.Fatalf("generated content contains init function:\n%s", content)
+	}
+}
+
+func assertContains(t *testing.T, content string, want string) {
+	t.Helper()
+
+	if !strings.Contains(content, want) {
+		t.Fatalf("generated content missing %q:\n%s", want, content)
+	}
+}
+
+func assertNotContains(t *testing.T, content string, unwanted string) {
+	t.Helper()
+
+	if strings.Contains(content, unwanted) {
+		t.Fatalf("generated content contains %q:\n%s", unwanted, content)
 	}
 }
 

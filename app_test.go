@@ -91,6 +91,59 @@ func (c *duplicateControllerB) GestController() ControllerDefinition {
 	return duplicateControllerDefinition("B")
 }
 
+type typedRouteController struct {
+	calls int
+}
+
+type typedRouteRequest struct {
+	ID       string `param:"id"`
+	Page     int    `query:"page" default:"1"`
+	Trace    string `header:"X-Trace-ID"`
+	Name     string `json:"name"`
+	Featured bool   `query:"featured" default:"false"`
+}
+
+type typedRouteResponse struct {
+	ID       string `json:"id"`
+	Page     int    `json:"page"`
+	Trace    string `json:"trace"`
+	Name     string `json:"name"`
+	Featured bool   `json:"featured"`
+}
+
+func newTypedRouteController() *typedRouteController {
+	return &typedRouteController{}
+}
+
+func (c *typedRouteController) Show(ctx *Context, req *typedRouteRequest) (*typedRouteResponse, error) {
+	c.calls++
+	return &typedRouteResponse{
+		ID:       req.ID,
+		Page:     req.Page,
+		Trace:    req.Trace,
+		Name:     req.Name,
+		Featured: req.Featured,
+	}, nil
+}
+
+func (c *typedRouteController) GestController() ControllerDefinition {
+	return ControllerDefinition{
+		Name:     "TypedRouteController",
+		BasePath: "/typed",
+		Routes: []RouteDefinition{
+			{
+				Name:     "Show",
+				Method:   http.MethodPost,
+				Path:     "/{id}",
+				Handler:  JSON(c.Show, Status(http.StatusCreated)),
+				Request:  (*typedRouteRequest)(nil),
+				Response: (*typedRouteResponse)(nil),
+				Statuses: []int{http.StatusCreated},
+			},
+		},
+	}
+}
+
 func TestAppServesRouteFromHandWrittenMetadata(t *testing.T) {
 	app := New()
 	app.Import(NewModule(ModuleConfig{
@@ -118,6 +171,86 @@ func TestAppServesRouteFromHandWrittenMetadata(t *testing.T) {
 	}
 	if got := recorder.Body.String(); got != "{\"message\":\"hello\"}\n" {
 		t.Fatalf("body = %q, want hello JSON", got)
+	}
+}
+
+func TestAppServesTypedDTORouteThroughChi(t *testing.T) {
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name:      "TypedModule",
+		Providers: Providers(Controller(newTypedRouteController)),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	router, ok := app.router.(*defaultRouter)
+	if !ok {
+		t.Fatalf("router = %T, want *defaultRouter", app.router)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/typed/user-1?page=3&featured=true", strings.NewReader(`{"name":"Ada"}`))
+	request.Header.Set("X-Trace-ID", "trace-1")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusCreated)
+	}
+
+	var body typedRouteResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatalf("Decode body returned error: %v", err)
+	}
+	if body.ID != "user-1" || body.Page != 3 || body.Trace != "trace-1" || body.Name != "Ada" || !body.Featured {
+		t.Fatalf("body = %#v, want bound typed DTO response", body)
+	}
+}
+
+func TestAppTypedDTORouteBadInputReturnsStable400JSON(t *testing.T) {
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name:      "TypedModule",
+		Providers: Providers(Controller(newTypedRouteController)),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	router, ok := app.router.(*defaultRouter)
+	if !ok {
+		t.Fatalf("router = %T, want *defaultRouter", app.router)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/typed/user-1?page=many", strings.NewReader(`{"name":"Ada"}`))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+
+	var body struct {
+		Error HTTPError `json:"error"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatalf("Decode body returned error: %v", err)
+	}
+	if body.Error.Kind != ErrorKindBadRequest {
+		t.Fatalf("error kind = %q, want %q", body.Error.Kind, ErrorKindBadRequest)
+	}
+	if body.Error.Code != "BINDING_CONVERSION_FAILURE" {
+		t.Fatalf("error code = %q, want BINDING_CONVERSION_FAILURE", body.Error.Code)
+	}
+	if body.Error.Field != "query.page" {
+		t.Fatalf("error field = %q, want query.page", body.Error.Field)
+	}
+	if !strings.Contains(body.Error.Message, "many") {
+		t.Fatalf("error message = %q, want safe received value", body.Error.Message)
 	}
 }
 
