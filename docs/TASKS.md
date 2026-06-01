@@ -98,7 +98,7 @@ Goal: run an app with hand-written controller metadata before writing the genera
 | --- | --- | --- | --- |
 | P1.1 | Done | Implement module API | Add `Module`, `ModuleConfig`, `NewModule`, `Imports`, and `Providers`. Support `Name`, `Global`, `Imports`, `Providers`, and basic boot hooks only if needed. Defer `Lazy`. |
 | P1.2 | Done | Implement provider API | Add `Provider`, `Provide`, `Controller`, `Value`, `Export`, `Name`, `As`, and `WithScope`. Implement only singleton scope first; reject or ignore unsupported scopes with clear errors. |
-| P1.3 | Planned | Implement token model | Add `Token`, `TokenOf[T]`, and named tokens for advanced cases. Keep normal APIs constructor-oriented. |
+| P1.3 | Done | Implement token model | Add `Token`, `TokenOf[T]`, and named tokens for advanced cases. Keep normal APIs constructor-oriented. |
 | P1.4 | Planned | Implement DI container | Support constructor injection, singleton caching, value providers, imports/exports, missing dependency errors, and cycle detection. |
 | P1.5 | Planned | Implement app bootstrap | Add `App`, `New`, `Import`, route registration, provider initialization, and `Listen`. |
 | P1.6 | Planned | Implement controller definitions | Add `DescribedController`, `ControllerDefinition`, `RouteDefinition`, `RouteMetadata`, and route runtime config types. |

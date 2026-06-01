@@ -1,7 +1,5 @@
 package gest
 
-import "reflect"
-
 // ProviderKind identifies the kind of provider declaration.
 type ProviderKind string
 
@@ -23,17 +21,6 @@ const (
 	// Request is deferred in v0. Implementations must reject it with a clear error.
 	Request Scope = "request"
 )
-
-// Token identifies a provider alias.
-type Token struct {
-	Type reflect.Type
-	Name string
-}
-
-// TokenOf returns a token for T.
-func TokenOf[T any]() Token {
-	return Token{Type: reflect.TypeOf((*T)(nil)).Elem()}
-}
 
 // Provider declares a runtime provider. It does not resolve dependencies.
 type Provider struct {
