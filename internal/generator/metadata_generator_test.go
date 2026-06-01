@@ -74,6 +74,7 @@ func (c *UserController) GestController() gest.ControllerDefinition {
 		t.Fatalf("generated content:\n%s\nwant:\n%s", files[0].Content, want)
 	}
 	assertNoInit(t, files[0].Content)
+	assertNoHiddenRegistry(t, files[0].Content)
 }
 
 func TestGenerateMetadataFilesGoldenMultipleControllers(t *testing.T) {
@@ -143,6 +144,7 @@ func (c *ReportController) GestController() gest.ControllerDefinition {
 	if string(files[0].Content) != want {
 		t.Fatalf("generated content:\n%s\nwant:\n%s", files[0].Content, want)
 	}
+	assertNoHiddenRegistry(t, files[0].Content)
 }
 
 func TestGenerateMetadataFilesStableAcrossRepeatedGeneration(t *testing.T) {
