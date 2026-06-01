@@ -2,8 +2,11 @@ package gest
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -128,14 +131,19 @@ func TestJSONRequestErrorHandlerReturnsNoContentOnNilError(t *testing.T) {
 
 func TestJSONBindsRequestBeforeCallingHandler(t *testing.T) {
 	type requestDTO struct {
-		ID string `param:"id"`
+		ID      string `param:"id"`
+		Page    int    `query:"page"`
+		Request string `header:"X-Request-ID"`
+		Name    string `json:"name"`
 	}
 
 	handler := JSON(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
-		return &jsonResponse{Name: req.ID}, nil
+		return &jsonResponse{Name: req.ID + "|" + req.Name + "|page-" + strconv.Itoa(req.Page) + "|" + req.Request}, nil
 	})
 
-	recorder, request := newJSONTestContext()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/users/1?page=2", strings.NewReader(`{"name":"Ada"}`))
+	request.Header.Set("X-Request-ID", "req-1")
 	context := NewContext(recorder, request)
 	context.SetParam("id", "user-1")
 
@@ -147,8 +155,44 @@ func TestJSONBindsRequestBeforeCallingHandler(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if body.Name != "user-1" {
-		t.Fatalf("Name = %q, want bound param", body.Name)
+	if body.Name != "user-1|Ada|page-2|req-1" {
+		t.Fatalf("Name = %q, want bound DTO values", body.Name)
+	}
+}
+
+func TestJSONBindingErrorPreventsHandlerExecution(t *testing.T) {
+	type requestDTO struct {
+		Limit int `query:"limit"`
+	}
+
+	called := false
+	handler := JSON(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
+		called = true
+		return &jsonResponse{Name: "unexpected"}, nil
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/users?limit=many", nil)
+	err := handler(NewContext(recorder, request))
+	if err == nil {
+		t.Fatal("handler returned nil error")
+	}
+	if called {
+		t.Fatal("handler was called after binding failure")
+	}
+
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error type = %T, want *HTTPError", err)
+	}
+	if httpErr.Kind != ErrorKindBadRequest {
+		t.Fatalf("Kind = %q, want %q", httpErr.Kind, ErrorKindBadRequest)
+	}
+	if httpErr.Code != "BINDING_CONVERSION_FAILURE" {
+		t.Fatalf("Code = %q, want BINDING_CONVERSION_FAILURE", httpErr.Code)
+	}
+	if httpErr.Field != "query.limit" {
+		t.Fatalf("Field = %q, want query.limit", httpErr.Field)
 	}
 }
 
