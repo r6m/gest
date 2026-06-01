@@ -101,7 +101,7 @@ Goal: run an app with hand-written controller metadata before writing the genera
 | P1.3 | Done | Implement token model | Add `Token`, `TokenOf[T]`, and named tokens for advanced cases. Keep normal APIs constructor-oriented. |
 | P1.4 | Done | Implement DI container | Support constructor injection, singleton caching, value providers, imports/exports, missing dependency errors, and cycle detection. |
 | P1.5 | Planned | Implement app bootstrap | Add `App`, `New`, `Import`, route registration, provider initialization, and `Listen`. |
-| P1.6 | Planned | Implement controller definitions | Add `DescribedController`, `ControllerDefinition`, `RouteDefinition`, `RouteMetadata`, and route runtime config types. |
+| P1.6 | Done | Implement controller definitions | Add `DescribedController`, `ControllerDefinition`, `RouteDefinition`, `RouteMetadata`, and route runtime config types. |
 | P1.7 | Planned | Implement Chi adapter | Add the first-party Chi/net-http adapter with groups, route handling, middleware registration, and server startup. |
 | P1.8 | Planned | Implement context | Add `Context` helpers for params, query, headers, bearer token, JSON, no-content, storage, native request/response escape hatches. |
 | P1.9 | Planned | Implement framework errors | Add `BadRequest`, `NotFound`, `Unauthorized`, `Forbidden`, `Internal`, and HTTP response mapping. |
