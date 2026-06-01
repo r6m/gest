@@ -180,7 +180,7 @@ Goal: provide the minimum CLI needed for generation and production builds.
 | P4.2 | Done | Implement config loading | Load `gest.yaml` with defaults for entry, generate root, router adapter, and build output. |
 | P4.3 | Done | Implement `gest generate` | Wire the generator to the CLI, print concise colored output, and return non-zero on validation failure. |
 | P4.4 | Done | Implement `gest build` | Run generate, validate, optional tests, then `go build`. Keep the underlying Go command visible. |
-| P4.5 | In Progress | Implement basic generators | Add `gest g module`, `gest g controller`, and `gest g service`. Prefer AST edits for parent module updates. `gest g module` is implemented; controller and service generators remain. |
+| P4.5 | Done | Implement basic generators | Add `gest g module`, `gest g controller`, and `gest g service`. Prefer AST edits for parent module updates. |
 | P4.6 | Planned | Add CLI tests | Cover command parsing, config defaults, dry-run generation, and failure output. |
 
 Deferred:

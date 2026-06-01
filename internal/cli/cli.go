@@ -30,8 +30,8 @@ func New() *CLI {
 	command.Generate = command.runGenerate
 	command.Build = command.runBuild
 	command.GenerateModule = command.runGenerateModule
-	command.GenerateController = unimplemented("g controller")
-	command.GenerateService = unimplemented("g service")
+	command.GenerateController = command.runGenerateController
+	command.GenerateService = command.runGenerateService
 	return command
 }
 
@@ -49,10 +49,10 @@ func (c *CLI) withDefaults(stdout, stderr io.Writer) *CLI {
 		c.GenerateModule = c.runGenerateModule
 	}
 	if c.GenerateController == nil {
-		c.GenerateController = unimplemented("g controller")
+		c.GenerateController = c.runGenerateController
 	}
 	if c.GenerateService == nil {
-		c.GenerateService = unimplemented("g service")
+		c.GenerateService = c.runGenerateService
 	}
 	if c.WorkDir == "" {
 		if workDir, err := os.Getwd(); err == nil {
@@ -125,12 +125,6 @@ func runHandler(ctx context.Context, handler Handler, args []string) error {
 	}
 
 	return handler(ctx, args)
-}
-
-func unimplemented(name string) Handler {
-	return func(context.Context, []string) error {
-		return fmt.Errorf("%s is not implemented yet", name)
-	}
 }
 
 func isHelp(arg string) bool {

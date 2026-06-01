@@ -40,6 +40,14 @@ func (c *CLI) runGenerateModule(ctx context.Context, args []string) error {
 	return writeModuleOutput(c.Stdout, result)
 }
 
+func (c *CLI) runGenerateController(ctx context.Context, args []string) error {
+	return c.runGenerateComponent(ctx, args, componentController)
+}
+
+func (c *CLI) runGenerateService(ctx context.Context, args []string) error {
+	return c.runGenerateComponent(ctx, args, componentService)
+}
+
 type moduleOptions struct {
 	path         string
 	dryRun       bool
@@ -72,6 +80,69 @@ func parseModuleOptions(args []string) (moduleOptions, error) {
 	return options, nil
 }
 
+type componentKind string
+
+const (
+	componentController componentKind = "controller"
+	componentService    componentKind = "service"
+)
+
+type componentOptions struct {
+	path         string
+	dryRun       bool
+	force        bool
+	updateModule bool
+}
+
+func (c *CLI) runGenerateComponent(ctx context.Context, args []string, kind componentKind) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	options, err := parseComponentOptions(args, kind)
+	if err != nil {
+		return err
+	}
+	componentPath, err := cleanModulePath(options.path)
+	if err != nil {
+		return err
+	}
+
+	result, err := c.generateComponent(componentPath, kind, options)
+	if err != nil {
+		return err
+	}
+	return writeModuleOutput(c.Stdout, result)
+}
+
+func parseComponentOptions(args []string, kind componentKind) (componentOptions, error) {
+	options := componentOptions{updateModule: true}
+	paths := make([]string, 0, 1)
+	command := "g " + string(kind)
+	for _, arg := range args {
+		switch arg {
+		case "--dry-run":
+			options.dryRun = true
+		case "--force":
+			options.force = true
+		case "--no-update-module":
+			options.updateModule = false
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return componentOptions{}, fmt.Errorf("unknown %s flag %q", command, arg)
+			}
+			paths = append(paths, arg)
+		}
+	}
+	if len(paths) != 1 {
+		return componentOptions{}, fmt.Errorf("%s requires exactly one path", command)
+	}
+	options.path = paths[0]
+	return options, nil
+}
+
 type moduleGenerateResult struct {
 	created       []string
 	updated       []string
@@ -80,6 +151,60 @@ type moduleGenerateResult struct {
 	dryRun        bool
 	noParent      bool
 	parentSkipped bool
+}
+
+func (c *CLI) generateComponent(componentPath string, kind componentKind, options componentOptions) (moduleGenerateResult, error) {
+	result := moduleGenerateResult{dryRun: options.dryRun, parentSkipped: !options.updateModule}
+	target := componentFilePath(c.WorkDir, componentPath, kind)
+	relativeTarget := slashRel(c.WorkDir, target)
+	content, err := componentFileContent(componentPath, kind)
+	if err != nil {
+		return result, err
+	}
+
+	if _, err := os.Stat(target); err == nil && !options.force {
+		return result, fmt.Errorf("%s already exists; use --force to overwrite", relativeTarget)
+	} else if err != nil && !os.IsNotExist(err) {
+		return result, err
+	}
+
+	result.created = append(result.created, relativeTarget)
+	if !options.dryRun {
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return result, err
+		}
+		if err := os.WriteFile(target, content, 0o644); err != nil {
+			return result, err
+		}
+	}
+
+	if !options.updateModule {
+		return result, nil
+	}
+
+	module := moduleFilePath(c.WorkDir, componentPath)
+	if !fileExists(module) {
+		result.noParent = true
+		result.warnings = append(result.warnings, "module file not found")
+		result.hints = append(result.hints, "add "+providerCall(componentPath, kind)+" manually")
+		return result, nil
+	}
+
+	relativeModule := slashRel(c.WorkDir, module)
+	if options.dryRun {
+		result.updated = append(result.updated, relativeModule)
+		return result, nil
+	}
+	updated, err := updateModuleProviders(module, c.WorkDir, componentPath, kind)
+	if err != nil {
+		return result, err
+	}
+	if updated {
+		result.updated = append(result.updated, relativeModule)
+	} else {
+		result.warnings = append(result.warnings, "module already provides "+providerCall(componentPath, kind))
+	}
+	return result, nil
 }
 
 func (c *CLI) generateModule(modulePath string, options moduleOptions) (moduleGenerateResult, error) {
@@ -189,6 +314,58 @@ func Module(options Options) gest.Module {
 	return format.Source([]byte(source))
 }
 
+func componentFilePath(workDir string, componentPath string, kind componentKind) string {
+	parts := strings.Split(componentPath, "/")
+	return filepath.Join(workDir, "internal", filepath.Join(parts...), parts[len(parts)-1]+"."+string(kind)+".go")
+}
+
+func componentFileContent(componentPath string, kind componentKind) ([]byte, error) {
+	parts := strings.Split(componentPath, "/")
+	packageName := parts[len(parts)-1]
+	typePrefix := exportedName(packageName)
+	var source string
+	switch kind {
+	case componentController:
+		source = fmt.Sprintf(`package %s
+
+// @Controller("/%s")
+type %sController struct{}
+
+func New%sController() *%sController {
+	return &%sController{}
+}
+`, packageName, routePath(componentPath), typePrefix, typePrefix, typePrefix, typePrefix)
+	case componentService:
+		source = fmt.Sprintf(`package %s
+
+type %sService struct{}
+
+func New%sService() *%sService {
+	return &%sService{}
+}
+`, packageName, typePrefix, typePrefix, typePrefix, typePrefix)
+	default:
+		return nil, fmt.Errorf("unknown component kind %q", kind)
+	}
+	return format.Source([]byte(source))
+}
+
+func exportedName(value string) string {
+	parts := strings.Split(value, "_")
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + part[1:]
+	}
+	return strings.Join(parts, "")
+}
+
+func routePath(componentPath string) string {
+	parts := strings.Split(componentPath, "/")
+	return parts[len(parts)-1]
+}
+
 func findParentModule(workDir string, modulePath string) string {
 	parts := strings.Split(modulePath, "/")
 	if len(parts) > 1 {
@@ -248,6 +425,40 @@ func updateParentModule(path string, workDir string, modulePath string) (bool, e
 	formatted, err := format.Source(updated)
 	if err != nil {
 		return false, fmt.Errorf("format parent module %s: %w", slashRel(workDir, path), err)
+	}
+	if bytes.Equal(content, formatted) {
+		return false, nil
+	}
+	if err := os.WriteFile(path, formatted, 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func updateModuleProviders(path string, workDir string, componentPath string, kind componentKind) (bool, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, path, content, parser.ParseComments)
+	if err != nil {
+		return false, fmt.Errorf("parse module %s: %w", slashRel(workDir, path), err)
+	}
+	call := providerCall(componentPath, kind)
+	if fileHasCall(parsed, call) {
+		return false, nil
+	}
+
+	edit, err := providersEdit(fileSet, parsed, call)
+	if err != nil {
+		return false, err
+	}
+	updated := applyEdits(content, []textEdit{edit})
+	formatted, err := format.Source(updated)
+	if err != nil {
+		return false, fmt.Errorf("format module %s: %w", slashRel(workDir, path), err)
 	}
 	if bytes.Equal(content, formatted) {
 		return false, nil
@@ -350,6 +561,52 @@ func importsEdit(fileSet *token.FileSet, file *ast.File, modulePath string) (tex
 	}, nil
 }
 
+func providersEdit(fileSet *token.FileSet, file *ast.File, call string) (textEdit, error) {
+	moduleConfig := findModuleConfig(file)
+	if moduleConfig == nil {
+		return textEdit{}, errors.New("module file does not contain gest.ModuleConfig")
+	}
+
+	for _, element := range moduleConfig.Elts {
+		kv, ok := element.(*ast.KeyValueExpr)
+		if !ok || identName(kv.Key) != "Providers" {
+			continue
+		}
+		callExpr, ok := kv.Value.(*ast.CallExpr)
+		if !ok || !isGestProviders(callExpr.Fun) {
+			return textEdit{}, errors.New("module Providers field is not gest.Providers(...)")
+		}
+		offset := fileSet.Position(callExpr.Rparen).Offset
+		prefix := ""
+		if len(callExpr.Args) > 0 {
+			prefix = "\n"
+		}
+		return textEdit{offset: offset, text: prefix + "\t\t\t" + call + ","}, nil
+	}
+
+	offset := fileSet.Position(moduleConfig.Rbrace).Offset
+	return textEdit{
+		offset: offset,
+		text:   "\t\tProviders: gest.Providers(\n\t\t\t" + call + ",\n\t\t),\n",
+	}, nil
+}
+
+func findModuleConfig(file *ast.File) *ast.CompositeLit {
+	var moduleConfig *ast.CompositeLit
+	ast.Inspect(file, func(node ast.Node) bool {
+		if moduleConfig != nil {
+			return false
+		}
+		lit, ok := node.(*ast.CompositeLit)
+		if !ok || !isGestModuleConfig(lit.Type) {
+			return true
+		}
+		moduleConfig = lit
+		return false
+	})
+	return moduleConfig
+}
+
 func isGestModuleConfig(expr ast.Expr) bool {
 	selector, ok := expr.(*ast.SelectorExpr)
 	return ok && selector.Sel != nil && selector.Sel.Name == "ModuleConfig" && identName(selector.X) == "gest"
@@ -358,6 +615,11 @@ func isGestModuleConfig(expr ast.Expr) bool {
 func isGestImports(expr ast.Expr) bool {
 	selector, ok := expr.(*ast.SelectorExpr)
 	return ok && selector.Sel != nil && selector.Sel.Name == "Imports" && identName(selector.X) == "gest"
+}
+
+func isGestProviders(expr ast.Expr) bool {
+	selector, ok := expr.(*ast.SelectorExpr)
+	return ok && selector.Sel != nil && selector.Sel.Name == "Providers" && identName(selector.X) == "gest"
 }
 
 func identName(expr ast.Expr) string {
@@ -369,7 +631,10 @@ func identName(expr ast.Expr) string {
 }
 
 func parentHasModuleCall(file *ast.File, modulePath string) bool {
-	call := moduleCall(modulePath)
+	return fileHasCall(file, moduleCall(modulePath))
+}
+
+func fileHasCall(file *ast.File, call string) bool {
 	found := false
 	ast.Inspect(file, func(node ast.Node) bool {
 		if found {
@@ -397,6 +662,19 @@ func moduleCall(modulePath string) string {
 	parts := strings.Split(modulePath, "/")
 	packageName := parts[len(parts)-1]
 	return packageName + ".Module(" + packageName + ".Options{})"
+}
+
+func providerCall(componentPath string, kind componentKind) string {
+	parts := strings.Split(componentPath, "/")
+	typePrefix := exportedName(parts[len(parts)-1])
+	switch kind {
+	case componentController:
+		return "gest.Controller(New" + typePrefix + "Controller)"
+	case componentService:
+		return "gest.Provide(New" + typePrefix + "Service)"
+	default:
+		return ""
+	}
 }
 
 func importPathFor(workDir string, modulePath string) (string, error) {
