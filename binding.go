@@ -37,8 +37,10 @@ func (c *Context) BindRequest(v any) error {
 }
 
 type bindField struct {
-	index int
-	name  string
+	index        int
+	name         string
+	defaultValue string
+	hasDefault   bool
 }
 
 type bindFields struct {
@@ -56,17 +58,18 @@ func bindableFields(structType reflect.Type) bindFields {
 			continue
 		}
 
+		defaultValue, hasDefault := field.Tag.Lookup("default")
 		if name, ok := tagName(field.Tag.Get("json")); ok {
-			fields.json = append(fields.json, bindField{index: index, name: name})
+			fields.json = append(fields.json, bindField{index: index, name: name, defaultValue: defaultValue, hasDefault: hasDefault})
 		}
 		if name, ok := tagName(field.Tag.Get("param")); ok {
-			fields.params = append(fields.params, bindField{index: index, name: name})
+			fields.params = append(fields.params, bindField{index: index, name: name, defaultValue: defaultValue, hasDefault: hasDefault})
 		}
 		if name, ok := tagName(field.Tag.Get("query")); ok {
-			fields.queries = append(fields.queries, bindField{index: index, name: name})
+			fields.queries = append(fields.queries, bindField{index: index, name: name, defaultValue: defaultValue, hasDefault: hasDefault})
 		}
 		if name, ok := tagName(field.Tag.Get("header")); ok {
-			fields.headers = append(fields.headers, bindField{index: index, name: name})
+			fields.headers = append(fields.headers, bindField{index: index, name: name, defaultValue: defaultValue, hasDefault: hasDefault})
 		}
 	}
 
@@ -151,11 +154,19 @@ func (c *Context) bindPathParams(target reflect.Value, fields bindFields) error 
 func (c *Context) bindQueryParams(target reflect.Value, fields bindFields) error {
 	for _, bindField := range fields.queries {
 		value := c.Query(bindField.name)
+		usedDefault := false
 		if value == "" {
-			continue
+			if !bindField.hasDefault {
+				continue
+			}
+			value = bindField.defaultValue
+			usedDefault = true
 		}
 
 		if err := setScalarField(target.Field(bindField.index), value); err != nil {
+			if usedDefault {
+				return defaultConversionError("query."+bindField.name, value, target.Field(bindField.index).Type())
+			}
 			return conversionError("query."+bindField.name, value, target.Field(bindField.index).Type())
 		}
 	}
@@ -166,11 +177,19 @@ func (c *Context) bindQueryParams(target reflect.Value, fields bindFields) error
 func (c *Context) bindHeaders(target reflect.Value, fields bindFields) error {
 	for _, bindField := range fields.headers {
 		value := c.Header(bindField.name)
+		usedDefault := false
 		if value == "" {
-			continue
+			if !bindField.hasDefault {
+				continue
+			}
+			value = bindField.defaultValue
+			usedDefault = true
 		}
 
 		if err := setScalarField(target.Field(bindField.index), value); err != nil {
+			if usedDefault {
+				return defaultConversionError("header."+bindField.name, value, target.Field(bindField.index).Type())
+			}
 			return conversionError("header."+bindField.name, value, target.Field(bindField.index).Type())
 		}
 	}
@@ -230,6 +249,15 @@ func conversionError(field string, value string, target reflect.Type) error {
 	return bindingError(
 		"BINDING_CONVERSION_FAILURE",
 		fmt.Sprintf("%s value %q cannot be converted to %s", field, value, target),
+		field,
+		conversionHint(target),
+	)
+}
+
+func defaultConversionError(field string, value string, target reflect.Type) error {
+	return bindingError(
+		"BINDING_CONVERSION_FAILURE",
+		fmt.Sprintf("%s default value %q cannot be converted to %s", field, value, target),
 		field,
 		conversionHint(target),
 	)

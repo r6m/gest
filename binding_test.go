@@ -43,6 +43,40 @@ func TestBindRequestBindsQueryParam(t *testing.T) {
 	}
 }
 
+func TestBindRequestAppliesQueryDefaultInt(t *testing.T) {
+	type requestDTO struct {
+		Page int `query:"page" default:"1"`
+	}
+
+	context := newBindingContext(http.MethodGet, "/users", "")
+
+	var dto requestDTO
+	if err := context.BindRequest(&dto); err != nil {
+		t.Fatalf("BindRequest returned error: %v", err)
+	}
+
+	if dto.Page != 1 {
+		t.Fatalf("Page = %d, want %d", dto.Page, 1)
+	}
+}
+
+func TestBindRequestAppliesQueryDefaultBool(t *testing.T) {
+	type requestDTO struct {
+		Active bool `query:"active" default:"true"`
+	}
+
+	context := newBindingContext(http.MethodGet, "/users", "")
+
+	var dto requestDTO
+	if err := context.BindRequest(&dto); err != nil {
+		t.Fatalf("BindRequest returned error: %v", err)
+	}
+
+	if !dto.Active {
+		t.Fatal("Active = false, want true")
+	}
+}
+
 func TestBindRequestBindsHeader(t *testing.T) {
 	type requestDTO struct {
 		Token string `header:"Authorization"`
@@ -58,6 +92,115 @@ func TestBindRequestBindsHeader(t *testing.T) {
 
 	if dto.Token != "Bearer token-1" {
 		t.Fatalf("Token = %q, want %q", dto.Token, "Bearer token-1")
+	}
+}
+
+func TestBindRequestAppliesHeaderDefaultString(t *testing.T) {
+	type requestDTO struct {
+		Locale string `header:"Accept-Language" default:"en-US"`
+	}
+
+	context := newBindingContext(http.MethodGet, "/users", "")
+
+	var dto requestDTO
+	if err := context.BindRequest(&dto); err != nil {
+		t.Fatalf("BindRequest returned error: %v", err)
+	}
+
+	if dto.Locale != "en-US" {
+		t.Fatalf("Locale = %q, want %q", dto.Locale, "en-US")
+	}
+}
+
+func TestBindRequestProvidedValueOverridesDefault(t *testing.T) {
+	type requestDTO struct {
+		Page   int    `query:"page" default:"1"`
+		Locale string `header:"Accept-Language" default:"en-US"`
+	}
+
+	context := newBindingContext(http.MethodGet, "/users?page=3", "")
+	context.RawRequest().Header.Set("Accept-Language", "fa-IR")
+
+	var dto requestDTO
+	if err := context.BindRequest(&dto); err != nil {
+		t.Fatalf("BindRequest returned error: %v", err)
+	}
+
+	if dto.Page != 3 {
+		t.Fatalf("Page = %d, want %d", dto.Page, 3)
+	}
+	if dto.Locale != "fa-IR" {
+		t.Fatalf("Locale = %q, want %q", dto.Locale, "fa-IR")
+	}
+}
+
+func TestBindRequestMalformedProvidedValueStillErrorsWithDefault(t *testing.T) {
+	type requestDTO struct {
+		Page int `query:"page" default:"1"`
+	}
+
+	context := newBindingContext(http.MethodGet, "/users?page=many", "")
+
+	var dto requestDTO
+	err := context.BindRequest(&dto)
+	if err == nil {
+		t.Fatal("BindRequest returned nil error")
+	}
+
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error type = %T, want *HTTPError", err)
+	}
+	if httpErr.Code != "BINDING_CONVERSION_FAILURE" {
+		t.Fatalf("Code = %q, want BINDING_CONVERSION_FAILURE", httpErr.Code)
+	}
+	if httpErr.Field != "query.page" {
+		t.Fatalf("Field = %q, want query.page", httpErr.Field)
+	}
+}
+
+func TestBindRequestMalformedDefaultValueReturnsFieldError(t *testing.T) {
+	type requestDTO struct {
+		Page int `query:"page" default:"many"`
+	}
+
+	context := newBindingContext(http.MethodGet, "/users", "")
+
+	var dto requestDTO
+	err := context.BindRequest(&dto)
+	if err == nil {
+		t.Fatal("BindRequest returned nil error")
+	}
+
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error type = %T, want *HTTPError", err)
+	}
+	if httpErr.Code != "BINDING_CONVERSION_FAILURE" {
+		t.Fatalf("Code = %q, want BINDING_CONVERSION_FAILURE", httpErr.Code)
+	}
+	if httpErr.Field != "query.page" {
+		t.Fatalf("Field = %q, want query.page", httpErr.Field)
+	}
+}
+
+func TestBindRequestPointerScalarDefaultAllocatesPointer(t *testing.T) {
+	type requestDTO struct {
+		Limit *uint `query:"limit" default:"25"`
+	}
+
+	context := newBindingContext(http.MethodGet, "/users", "")
+
+	var dto requestDTO
+	if err := context.BindRequest(&dto); err != nil {
+		t.Fatalf("BindRequest returned error: %v", err)
+	}
+
+	if dto.Limit == nil {
+		t.Fatal("Limit = nil, want allocated pointer")
+	}
+	if *dto.Limit != 25 {
+		t.Fatalf("Limit = %d, want %d", *dto.Limit, 25)
 	}
 }
 
