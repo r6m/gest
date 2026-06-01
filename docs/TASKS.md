@@ -181,7 +181,7 @@ Goal: provide the minimum CLI needed for generation and production builds.
 | P4.3 | Done | Implement `gest generate` | Wire the generator to the CLI, print concise colored output, and return non-zero on validation failure. |
 | P4.4 | Done | Implement `gest build` | Run generate, validate, optional tests, then `go build`. Keep the underlying Go command visible. |
 | P4.5 | Done | Implement basic generators | Add `gest g module`, `gest g controller`, and `gest g service`. Prefer AST edits for parent module updates. |
-| P4.6 | Planned | Add CLI tests | Cover command parsing, config defaults, dry-run generation, and failure output. |
+| P4.6 | Done | Add CLI tests | Cover command parsing, config defaults, dry-run generation, and failure output. |
 
 Deferred:
 

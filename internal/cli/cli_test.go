@@ -3,8 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
-	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -112,19 +113,27 @@ func TestHandlerErrorsAreReturnedAsNonZero(t *testing.T) {
 
 func TestRuntimePackagesDoNotImportCLIOrTooling(t *testing.T) {
 	root := projectRoot(t)
-	for _, file := range runtimeGoFiles(t, root) {
-		content, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatalf("read %s: %v", file, err)
-		}
+	command := exec.Command("go", "list", "-json", "github.com/r6m/gest", "github.com/r6m/gest/router/chiadapter")
+	command.Dir = root
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("go list runtime packages: %v", err)
+	}
 
-		for _, forbidden := range []string{
-			"\"github.com/r6m/gest/internal/cli\"",
-			"\"github.com/r6m/gest/internal/generator\"",
-			"\"github.com/r6m/gest/internal/config\"",
-		} {
-			if strings.Contains(string(content), forbidden) {
-				t.Fatalf("runtime file %s imports forbidden tooling package %s", file, forbidden)
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	for decoder.More() {
+		var pkg struct {
+			ImportPath string
+			Deps       []string
+		}
+		if err := decoder.Decode(&pkg); err != nil {
+			t.Fatalf("decode go list output: %v", err)
+		}
+		for _, dep := range pkg.Deps {
+			if dep == "github.com/r6m/gest/internal/cli" ||
+				dep == "github.com/r6m/gest/internal/config" ||
+				dep == "github.com/r6m/gest/internal/generator" {
+				t.Fatalf("runtime package %s imports tooling package %s", pkg.ImportPath, dep)
 			}
 		}
 	}
@@ -152,26 +161,4 @@ func projectRoot(t *testing.T) string {
 	}
 
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-}
-
-func runtimeGoFiles(t *testing.T, root string) []string {
-	t.Helper()
-
-	var files []string
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatalf("read project root: %v", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" {
-			continue
-		}
-		if strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-		files = append(files, filepath.Join(root, entry.Name()))
-	}
-
-	return files
 }
