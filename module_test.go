@@ -7,7 +7,7 @@ import (
 
 func TestNewModuleDefinitionMatchesInput(t *testing.T) {
 	imported := NewModule(ModuleConfig{Name: "ImportedModule"})
-	provider := struct{ name string }{name: "provider"}
+	provider := Value("provider")
 
 	mod := NewModule(ModuleConfig{
 		Name:      "ReportsModule",
@@ -43,8 +43,8 @@ func TestImportsPreservesOrder(t *testing.T) {
 }
 
 func TestProvidersPreservesOrder(t *testing.T) {
-	first := struct{ name string }{name: "first"}
-	second := struct{ name string }{name: "second"}
+	first := Value("first")
+	second := Value("second")
 
 	got := Providers(first, second)
 
@@ -56,8 +56,8 @@ func TestProvidersPreservesOrder(t *testing.T) {
 func TestDefinitionDoesNotExposeInternalSlices(t *testing.T) {
 	firstImport := NewModule(ModuleConfig{Name: "FirstImport"})
 	secondImport := NewModule(ModuleConfig{Name: "SecondImport"})
-	firstProvider := struct{ name string }{name: "first"}
-	secondProvider := struct{ name string }{name: "second"}
+	firstProvider := Value("first")
+	secondProvider := Value("second")
 
 	mod := NewModule(ModuleConfig{
 		Name:      "ReportsModule",
@@ -81,8 +81,8 @@ func TestDefinitionDoesNotExposeInternalSlices(t *testing.T) {
 func TestNewModuleCopiesInputSlices(t *testing.T) {
 	firstImport := NewModule(ModuleConfig{Name: "FirstImport"})
 	secondImport := NewModule(ModuleConfig{Name: "SecondImport"})
-	firstProvider := struct{ name string }{name: "first"}
-	secondProvider := struct{ name string }{name: "second"}
+	firstProvider := Value("first")
+	secondProvider := Value("second")
 	imports := []Module{firstImport}
 	providers := []Provider{firstProvider}
 

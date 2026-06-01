@@ -13,9 +13,6 @@ type ModuleConfig struct {
 	Providers []Provider
 }
 
-// Provider is a placeholder for the provider API implemented in P1.2.
-type Provider interface{}
-
 type module struct {
 	config ModuleConfig
 }
