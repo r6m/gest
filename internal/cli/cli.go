@@ -29,7 +29,7 @@ func New() *CLI {
 	command := &CLI{}
 	command.Generate = command.runGenerate
 	command.Build = command.runBuild
-	command.GenerateModule = unimplemented("g module")
+	command.GenerateModule = command.runGenerateModule
 	command.GenerateController = unimplemented("g controller")
 	command.GenerateService = unimplemented("g service")
 	return command
@@ -46,7 +46,7 @@ func (c *CLI) withDefaults(stdout, stderr io.Writer) *CLI {
 		c.Build = c.runBuild
 	}
 	if c.GenerateModule == nil {
-		c.GenerateModule = unimplemented("g module")
+		c.GenerateModule = c.runGenerateModule
 	}
 	if c.GenerateController == nil {
 		c.GenerateController = unimplemented("g controller")
