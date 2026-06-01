@@ -226,7 +226,7 @@ func setScalarField(field reflect.Value, value string) error {
 			return err
 		}
 		field.SetInt(parsed)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		parsed, err := strconv.ParseUint(value, 10, field.Type().Bits())
 		if err != nil {
 			return err
@@ -248,7 +248,7 @@ func setScalarField(field reflect.Value, value string) error {
 func conversionError(field string, value string, target reflect.Type) error {
 	return bindingError(
 		"BINDING_CONVERSION_FAILURE",
-		fmt.Sprintf("%s value %q cannot be converted to %s", field, value, target),
+		fmt.Sprintf("%s value %q cannot be converted to %s", field, value, targetTypeName(target)),
 		field,
 		conversionHint(target),
 	)
@@ -257,7 +257,7 @@ func conversionError(field string, value string, target reflect.Type) error {
 func defaultConversionError(field string, value string, target reflect.Type) error {
 	return bindingError(
 		"BINDING_CONVERSION_FAILURE",
-		fmt.Sprintf("%s default value %q cannot be converted to %s", field, value, target),
+		fmt.Sprintf("%s default value %q cannot be converted to %s", field, value, targetTypeName(target)),
 		field,
 		conversionHint(target),
 	)
@@ -273,11 +273,36 @@ func conversionHint(target reflect.Type) string {
 		return "Use true or false."
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return "Use a base-10 signed integer value."
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return "Use a base-10 unsigned integer value."
 	case reflect.Float32, reflect.Float64:
 		return "Use a numeric value."
 	default:
 		return ""
+	}
+}
+
+func targetTypeName(target reflect.Type) string {
+	if target.Kind() == reflect.Ptr {
+		return "pointer to " + targetTypeName(target.Elem())
+	}
+
+	switch target.Kind() {
+	case reflect.String:
+		return "string"
+	case reflect.Bool:
+		return "bool"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return target.Kind().String()
+	case reflect.Struct:
+		return "unsupported struct type"
+	case reflect.Map:
+		return "unsupported map type"
+	case reflect.Slice:
+		return "unsupported slice type"
+	default:
+		return "unsupported type"
 	}
 }
