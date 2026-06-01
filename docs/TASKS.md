@@ -64,7 +64,7 @@ These rules apply to every task in this file.
 
 9. Require lint.
    - The root `.golangci.yml` is the lint contract.
-   - A task cannot be marked `Done` unless `golangci-lint run ./...` passes or a concrete blocker is documented.
+   - A task cannot be marked `Done` unless `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
    - Do not add blanket lint disables. Fix the code or document a narrow exception.
 
 ## Phase 0: Product Scope And Architecture Baseline
@@ -105,7 +105,7 @@ Goal: run an app with hand-written controller metadata before writing the genera
 | P1.7 | Done | Implement Chi adapter | Add the first-party Chi/net-http adapter with groups, route handling, middleware registration, and server startup. |
 | P1.8 | Done | Implement context | Add `Context` helpers for params, query, headers, bearer token, JSON, no-content, storage, native request/response escape hatches. |
 | P1.9 | Done | Implement framework errors | Add `BadRequest`, `NotFound`, `Unauthorized`, `Forbidden`, `Internal`, and HTTP response mapping. |
-| P1.10 | Planned | Add runtime tests | Cover module graph, DI resolution, exports/imports, route registration, context helpers, and error responses. |
+| P1.10 | Done | Add runtime tests | Cover module graph, DI resolution, exports/imports, route registration, context helpers, and error responses. |
 
 Exit criteria:
 
@@ -115,7 +115,7 @@ Exit criteria:
 - Runtime packages do not import generator, CLI, filesystem scanning, AST parser, or config-loader packages.
 - No request scope, transient scope, lazy modules, OpenAPI, or dev server behavior exists in Phase 1.
 - Runtime work includes tests for success and failure paths.
-- `golangci-lint run ./...` passes or a concrete blocker is documented.
+- `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
 ## Phase 2: Generator MVP
 
@@ -142,7 +142,7 @@ Exit criteria:
 - Generated files contain no `init()` functions and no hidden registration side effects.
 - Running the generator twice without source changes produces identical output.
 - Generator work includes fixture tests for successful generation and diagnostics.
-- `golangci-lint run ./...` passes or a concrete blocker is documented.
+- `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
 ## Phase 3: Typed JSON Handlers And Binding
 
@@ -168,7 +168,7 @@ Exit criteria:
 - Bad input returns stable 400 responses with actionable messages.
 - Binding does not require global state or a database/cache/auth module.
 - Binding work includes tests for valid input, invalid input, and conversion failures.
-- `golangci-lint run ./...` passes or a concrete blocker is documented.
+- `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
 ## Phase 4: CLI MVP
 
@@ -194,7 +194,7 @@ Exit criteria:
 - `gest build` prints or clearly reports the underlying `go build` command it runs.
 - CLI packages do not leak into runtime imports.
 - CLI work includes command tests for success and failure cases.
-- `golangci-lint run ./...` passes or a concrete blocker is documented.
+- `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
 ## Phase 5: OpenAPI And Swagger
 
@@ -213,7 +213,7 @@ Exit criteria:
 - The example app exposes a valid OpenAPI document.
 - Swagger UI is optional and does not expand the core runtime.
 - OpenAPI work includes schema and route metadata tests.
-- `golangci-lint run ./...` passes or a concrete blocker is documented.
+- `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
 ## Phase 6: Developer Experience
 
@@ -233,7 +233,7 @@ Exit criteria:
 - Build failures do not kill the last running app.
 - Testing helpers reduce boilerplate without replacing Go testing.
 - Developer-experience work includes tests for failure paths where practical.
-- `golangci-lint run ./...` passes or a concrete blocker is documented.
+- `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
 ## Phase 7: Optional Official Modules
 
@@ -259,7 +259,7 @@ Exit criteria:
 - Each official module is optional.
 - Users can replace official modules with their own modules without special cases.
 - Each optional module has unit tests and at least one integration-style usage test when it exposes runtime behavior.
-- `golangci-lint run ./...` passes or a concrete blocker is documented.
+- `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
 ## Phase 8: Advanced Runtime
 
@@ -280,7 +280,7 @@ Exit criteria:
 - Advanced features do not make the simple JSON API path harder to understand.
 - Every advanced feature has clear opt-in behavior and escape hatches.
 - Advanced runtime work includes concurrency, lifecycle, or integration tests appropriate to the feature.
-- `golangci-lint run ./...` passes or a concrete blocker is documented.
+- `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
 ## Agent Prompt Template
 
@@ -293,7 +293,7 @@ Constraints:
 - Follow AGENTS.md and .skills/RTK.md; prefix shell commands with rtk.
 - Keep the change scoped to the task.
 - Add or update tests appropriate to the task.
-- Run `go test ./...` and `golangci-lint run ./...`; document exact results.
+- Run `rtk go test ./...` and `rtk proxy golangci-lint run ./...`; document exact results.
 - Do not implement deferred features.
 - Do not introduce hidden registries, init-time route registration, runtime source scanning, or runtime imports of generator/CLI packages.
 - Update docs/TASKS.md status only if the task is actually complete.
