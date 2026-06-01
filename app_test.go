@@ -1,6 +1,7 @@
 package gest
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -255,6 +256,42 @@ func TestAppCustomAdapterCanBeInjected(t *testing.T) {
 	}
 }
 
+func TestAppMapsHandlerFrameworkErrors(t *testing.T) {
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name:      "AppModule",
+		Providers: Providers(Controller(newErrorController)),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	router, ok := app.router.(*defaultRouter)
+	if !ok {
+		t.Fatalf("router = %T, want *defaultRouter", app.router)
+	}
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/missing", nil))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
+	}
+	var body struct {
+		Error HTTPError `json:"error"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatalf("Decode body returned error: %v", err)
+	}
+	if body.Error.Kind != ErrorKindNotFound {
+		t.Fatalf("error kind = %q, want %q", body.Error.Kind, ErrorKindNotFound)
+	}
+	if body.Error.Message != "missing resource" {
+		t.Fatalf("error message = %q, want missing resource", body.Error.Message)
+	}
+}
+
 func duplicateControllerDefinition(name string) ControllerDefinition {
 	return ControllerDefinition{
 		Name: name,
@@ -264,6 +301,27 @@ func duplicateControllerDefinition(name string) ControllerDefinition {
 				Path:   "/duplicate",
 				Handler: func(ctx *Context) error {
 					return ctx.NoContent(http.StatusNoContent)
+				},
+			},
+		},
+	}
+}
+
+type errorController struct{}
+
+func newErrorController() *errorController {
+	return &errorController{}
+}
+
+func (c *errorController) GestController() ControllerDefinition {
+	return ControllerDefinition{
+		Name: "ErrorController",
+		Routes: []RouteDefinition{
+			{
+				Method: http.MethodGet,
+				Path:   "/missing",
+				Handler: func(ctx *Context) error {
+					return NotFound("missing resource")
 				},
 			},
 		},
