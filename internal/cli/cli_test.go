@@ -95,7 +95,7 @@ func TestCommandsRouteToHandlers(t *testing.T) {
 func TestHandlerErrorsAreReturnedAsNonZero(t *testing.T) {
 	var stderr bytes.Buffer
 	command := &CLI{
-		Generate: func(context.Context) error {
+		Generate: func(context.Context, []string) error {
 			return errors.New("failed")
 		},
 	}
@@ -131,7 +131,7 @@ func TestRuntimePackagesDoNotImportCLIOrTooling(t *testing.T) {
 }
 
 func recordHandler(called *[]string, name string) Handler {
-	return func(context.Context) error {
+	return func(context.Context, []string) error {
 		*called = append(*called, name)
 		return nil
 	}

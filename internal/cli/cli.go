@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
 // Handler runs a parsed CLI command.
-type Handler func(context.Context) error
+type Handler func(context.Context, []string) error
 
 // CLI contains the command handlers used by the gest executable.
 type CLI struct {
@@ -18,24 +19,52 @@ type CLI struct {
 	GenerateModule     Handler
 	GenerateController Handler
 	GenerateService    Handler
+	WorkDir            string
+	Stdout             io.Writer
 }
 
 // New creates a CLI with placeholder handlers for commands implemented in later phases.
 func New() *CLI {
-	return &CLI{
-		Generate:           unimplemented("generate"),
-		Build:              unimplemented("build"),
-		GenerateModule:     unimplemented("g module"),
-		GenerateController: unimplemented("g controller"),
-		GenerateService:    unimplemented("g service"),
+	command := &CLI{}
+	command.Generate = command.runGenerate
+	command.Build = unimplemented("build")
+	command.GenerateModule = unimplemented("g module")
+	command.GenerateController = unimplemented("g controller")
+	command.GenerateService = unimplemented("g service")
+	return command
+}
+
+func (c *CLI) withDefaults(stdout io.Writer) *CLI {
+	if c == nil {
+		return New().withDefaults(stdout)
 	}
+	if c.Generate == nil {
+		c.Generate = c.runGenerate
+	}
+	if c.Build == nil {
+		c.Build = unimplemented("build")
+	}
+	if c.GenerateModule == nil {
+		c.GenerateModule = unimplemented("g module")
+	}
+	if c.GenerateController == nil {
+		c.GenerateController = unimplemented("g controller")
+	}
+	if c.GenerateService == nil {
+		c.GenerateService = unimplemented("g service")
+	}
+	if c.WorkDir == "" {
+		if workDir, err := os.Getwd(); err == nil {
+			c.WorkDir = workDir
+		}
+	}
+	c.Stdout = stdout
+	return c
 }
 
 // Run parses args, writes command output, and returns the process exit code.
 func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	if c == nil {
-		c = New()
-	}
+	c = c.withDefaults(stdout)
 
 	if len(args) == 0 || isHelp(args[0]) {
 		if err := writeHelp(stdout); err != nil {
@@ -52,9 +81,9 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		}
 		return 0
 	case "generate":
-		err = runHandler(ctx, c.Generate)
+		err = runHandler(ctx, c.Generate, args[1:])
 	case "build":
-		err = runHandler(ctx, c.Build)
+		err = runHandler(ctx, c.Build, args[1:])
 	case "g":
 		err = c.runGenerateShortcut(ctx, args[1:])
 	default:
@@ -78,26 +107,26 @@ func (c *CLI) runGenerateShortcut(ctx context.Context, args []string) error {
 
 	switch args[0] {
 	case "module":
-		return runHandler(ctx, c.GenerateModule)
+		return runHandler(ctx, c.GenerateModule, args[1:])
 	case "controller":
-		return runHandler(ctx, c.GenerateController)
+		return runHandler(ctx, c.GenerateController, args[1:])
 	case "service":
-		return runHandler(ctx, c.GenerateService)
+		return runHandler(ctx, c.GenerateService, args[1:])
 	default:
 		return fmt.Errorf("unknown g subcommand %q", args[0])
 	}
 }
 
-func runHandler(ctx context.Context, handler Handler) error {
+func runHandler(ctx context.Context, handler Handler, args []string) error {
 	if handler == nil {
 		return errors.New("command handler is not configured")
 	}
 
-	return handler(ctx)
+	return handler(ctx, args)
 }
 
 func unimplemented(name string) Handler {
-	return func(context.Context) error {
+	return func(context.Context, []string) error {
 		return fmt.Errorf("%s is not implemented yet", name)
 	}
 }
