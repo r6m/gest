@@ -85,6 +85,9 @@ func callRequestErrorHandler(handler reflect.Value, ctx *Context, config handler
 	if err := ctx.BindRequest(request.Interface()); err != nil {
 		return err
 	}
+	if err := ctx.Validate(request.Interface()); err != nil {
+		return err
+	}
 
 	results := handler.Call([]reflect.Value{reflect.ValueOf(ctx), request})
 	if err := errorValue(results[0]); err != nil {
@@ -97,6 +100,9 @@ func callRequestErrorHandler(handler reflect.Value, ctx *Context, config handler
 func callRequestResponseErrorHandler(handler reflect.Value, ctx *Context, config handlerConfig) error {
 	request := reflect.New(handler.Type().In(1).Elem())
 	if err := ctx.BindRequest(request.Interface()); err != nil {
+		return err
+	}
+	if err := ctx.Validate(request.Interface()); err != nil {
 		return err
 	}
 

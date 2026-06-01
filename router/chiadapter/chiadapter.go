@@ -40,6 +40,7 @@ func (a *Adapter) Group(prefix string, fn func(group gest.RouterAdapter)) {
 func (a *Adapter) Handle(route gest.RouteRuntimeConfig) {
 	a.router.MethodFunc(normalizeMethod(route.Method), route.Path, func(response http.ResponseWriter, request *http.Request) {
 		context := gest.NewContext(response, request)
+		context.SetValidator(route.Validator)
 		for _, key := range chi.RouteContext(request.Context()).URLParams.Keys {
 			context.SetParam(key, chi.URLParam(request, key))
 		}

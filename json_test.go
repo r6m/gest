@@ -196,6 +196,83 @@ func TestJSONBindingErrorPreventsHandlerExecution(t *testing.T) {
 	}
 }
 
+func TestJSONValidationErrorPreventsHandlerExecution(t *testing.T) {
+	type requestDTO struct {
+		Name string `json:"name"`
+	}
+
+	called := false
+	handler := JSON(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
+		called = true
+		return &jsonResponse{Name: "unexpected"}, nil
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"name":"Ada"}`))
+	context := NewContext(recorder, request)
+	validator := &recordingValidator{err: errors.New("name is invalid")}
+	context.SetValidator(validator)
+
+	err := handler(context)
+	if err == nil {
+		t.Fatal("handler returned nil error")
+	}
+	if called {
+		t.Fatal("handler was called after validation failure")
+	}
+	if validator.calls != 1 {
+		t.Fatalf("validator calls = %d, want %d", validator.calls, 1)
+	}
+
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error type = %T, want *HTTPError", err)
+	}
+	if httpErr.Code != "BINDING_VALIDATION_FAILURE" {
+		t.Fatalf("Code = %q, want BINDING_VALIDATION_FAILURE", httpErr.Code)
+	}
+}
+
+func TestJSONValidationErrorMapsThroughHTTPErrorResponse(t *testing.T) {
+	type requestDTO struct {
+		Name string `json:"name"`
+	}
+
+	handler := JSON(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
+		return &jsonResponse{Name: "unexpected"}, nil
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"name":"Ada"}`))
+	context := NewContext(recorder, request)
+	context.SetValidator(&recordingValidator{err: errors.New("name is invalid")})
+
+	err := handler(context)
+	if err == nil {
+		t.Fatal("handler returned nil error")
+	}
+	if writeErr := WriteError(recorder, err); writeErr != nil {
+		t.Fatalf("WriteError returned error: %v", writeErr)
+	}
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+
+	var body struct {
+		Error HTTPError `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if body.Error.Kind != ErrorKindBadRequest {
+		t.Fatalf("error kind = %q, want %q", body.Error.Kind, ErrorKindBadRequest)
+	}
+	if body.Error.Code != "BINDING_VALIDATION_FAILURE" {
+		t.Fatalf("error code = %q, want BINDING_VALIDATION_FAILURE", body.Error.Code)
+	}
+}
+
 func TestJSONContextErrorHandlerReturnsNoContentOnNilError(t *testing.T) {
 	handler := JSON(func(ctx *Context) error {
 		return nil

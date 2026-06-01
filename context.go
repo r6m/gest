@@ -8,23 +8,25 @@ import (
 
 // Context wraps net/http request and response objects without hiding them.
 type Context struct {
-	response http.ResponseWriter
-	request  *http.Request
-	params   map[string]string
-	values   map[string]any
-	native   any
-	engine   string
+	response  http.ResponseWriter
+	request   *http.Request
+	params    map[string]string
+	values    map[string]any
+	validator Validator
+	native    any
+	engine    string
 }
 
 // NewContext creates a net/http-backed context.
 func NewContext(response http.ResponseWriter, request *http.Request) *Context {
 	return &Context{
-		response: response,
-		request:  request,
-		params:   make(map[string]string),
-		values:   make(map[string]any),
-		native:   request.Context(),
-		engine:   "net/http",
+		response:  response,
+		request:   request,
+		params:    make(map[string]string),
+		values:    make(map[string]any),
+		validator: noopValidator{},
+		native:    request.Context(),
+		engine:    "net/http",
 	}
 }
 
@@ -74,6 +76,32 @@ func (c *Context) JSON(status int, value any) error {
 func (c *Context) NoContent(status int) error {
 	c.response.WriteHeader(status)
 	return nil
+}
+
+// Validate validates a bound request DTO using the configured validator.
+func (c *Context) Validate(v any) error {
+	if c.validator == nil {
+		return nil
+	}
+	if err := c.validator.Validate(v); err != nil {
+		return bindingError(
+			"BINDING_VALIDATION_FAILURE",
+			"request validation failed: "+err.Error(),
+			"",
+			"",
+		)
+	}
+
+	return nil
+}
+
+// SetValidator configures request validation for this context.
+func (c *Context) SetValidator(validator Validator) {
+	if validator == nil {
+		c.validator = noopValidator{}
+		return
+	}
+	c.validator = validator
 }
 
 // Set stores a request-local value.

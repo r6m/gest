@@ -256,6 +256,27 @@ func TestAppCustomAdapterCanBeInjected(t *testing.T) {
 	}
 }
 
+func TestAppInstallsValidatorOnRegisteredRoutes(t *testing.T) {
+	fake := newFakeRouter()
+	validator := &recordingValidator{}
+	app := New(WithRouter(fake), WithValidator(validator))
+	app.Import(NewModule(ModuleConfig{
+		Name:      "AppModule",
+		Providers: Providers(Controller(newDuplicateControllerA)),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+	if len(fake.routes) != 1 {
+		t.Fatalf("registered routes = %d, want 1", len(fake.routes))
+	}
+	if fake.routes[0].Validator != validator {
+		t.Fatal("route validator was not installed")
+	}
+}
+
 func TestAppMapsHandlerFrameworkErrors(t *testing.T) {
 	app := New()
 	app.Import(NewModule(ModuleConfig{

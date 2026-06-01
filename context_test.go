@@ -2,6 +2,7 @@ package gest
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -107,6 +108,55 @@ func TestContextNoContentWritesStatusWithNoBody(t *testing.T) {
 	}
 }
 
+func TestContextDefaultValidatorIsNoop(t *testing.T) {
+	context := NewContext(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if err := context.Validate(struct{}{}); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+}
+
+func TestContextConfiguredValidatorIsCalled(t *testing.T) {
+	context := NewContext(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	validator := &recordingValidator{}
+	context.SetValidator(validator)
+
+	dto := struct {
+		Name string
+	}{Name: "Ada"}
+	if err := context.Validate(&dto); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+
+	if validator.calls != 1 {
+		t.Fatalf("validator calls = %d, want %d", validator.calls, 1)
+	}
+	if validator.value != &dto {
+		t.Fatal("validator did not receive DTO pointer")
+	}
+}
+
+func TestContextValidationErrorReturnsBindingValidationFailure(t *testing.T) {
+	context := NewContext(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	context.SetValidator(&recordingValidator{err: errors.New("name is required")})
+
+	err := context.Validate(struct{}{})
+	if err == nil {
+		t.Fatal("Validate returned nil error")
+	}
+
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error type = %T, want *HTTPError", err)
+	}
+	if httpErr.Kind != ErrorKindBadRequest {
+		t.Fatalf("Kind = %q, want %q", httpErr.Kind, ErrorKindBadRequest)
+	}
+	if httpErr.Code != "BINDING_VALIDATION_FAILURE" {
+		t.Fatalf("Code = %q, want BINDING_VALIDATION_FAILURE", httpErr.Code)
+	}
+}
+
 func TestContextSetGetStoresRequestLocalValues(t *testing.T) {
 	context := NewContext(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 
@@ -122,6 +172,18 @@ func TestContextSetGetStoresRequestLocalValues(t *testing.T) {
 	if ok {
 		t.Fatal("Get(missing) ok = true, want false")
 	}
+}
+
+type recordingValidator struct {
+	calls int
+	value any
+	err   error
+}
+
+func (v *recordingValidator) Validate(value any) error {
+	v.calls++
+	v.value = value
+	return v.err
 }
 
 func TestContextEscapeHatchesReturnNetHTTPObjects(t *testing.T) {

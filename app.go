@@ -13,10 +13,11 @@ type Option func(*App)
 
 // App wires modules, DI, controllers, and a router adapter.
 type App struct {
-	router   RouterAdapter
-	modules  []Module
-	bootLogs bool
-	built    bool
+	router    RouterAdapter
+	modules   []Module
+	validator Validator
+	bootLogs  bool
+	built     bool
 }
 
 // New creates an application with default options.
@@ -43,6 +44,13 @@ func WithRouter(adapter RouterAdapter) Option {
 func WithBootLogs(enabled bool) Option {
 	return func(app *App) {
 		app.bootLogs = enabled
+	}
+}
+
+// WithValidator configures the validator used by typed JSON handlers.
+func WithValidator(validator Validator) Option {
+	return func(app *App) {
+		app.validator = validator
 	}
 }
 
@@ -115,9 +123,10 @@ func (a *App) registerController(provider *providerState, seenRoutes map[string]
 		}
 		seenRoutes[key] = struct{}{}
 		a.router.Handle(RouteRuntimeConfig{
-			Method:  route.Method,
-			Path:    fullPath,
-			Handler: route.Handler,
+			Method:    route.Method,
+			Path:      fullPath,
+			Handler:   route.Handler,
+			Validator: a.validator,
 		})
 	}
 
@@ -196,6 +205,7 @@ func (r *defaultRouter) Group(prefix string, fn func(group RouterAdapter)) {
 func (r *defaultRouter) Handle(route RouteRuntimeConfig) {
 	r.router.MethodFunc(strings.ToUpper(route.Method), route.Path, func(response http.ResponseWriter, request *http.Request) {
 		context := NewContext(response, request)
+		context.SetValidator(route.Validator)
 		for _, key := range chi.RouteContext(request.Context()).URLParams.Keys {
 			context.SetParam(key, chi.URLParam(request, key))
 		}

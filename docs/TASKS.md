@@ -153,7 +153,7 @@ Goal: make the preferred controller style work end to end.
 | P3.1 | Done | Implement `gest.JSON` | Support typed handlers returning `(*Res, error)` or `error`. Map nil responses to no-content. |
 | P3.2 | Done | Implement request binding | Bind `param`, `query`, `header`, and JSON body tags into request DTO structs. |
 | P3.3 | Done | Add default values | Support simple `default` tags for query/header fields where conversion is unambiguous. |
-| P3.4 | Planned | Add validation hook | Integrate an optional validator behind `Context.Validate`; keep validation module optional. |
+| P3.4 | Done | Add validation hook | Integrate an optional validator behind `Context.Validate`; keep validation module optional. |
 | P3.5 | Planned | Add type conversion | Convert strings into common scalar types and return useful binding errors. |
 | P3.6 | Planned | Expand generator handler output | Generate `gest.JSON(c.Method, gest.Status(...))` wrappers for typed JSON routes. |
 | P3.7 | Planned | Add binding tests | Cover params, query, headers, JSON body, defaults, conversion failures, and validation failures. |
