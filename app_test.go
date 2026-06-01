@@ -436,6 +436,198 @@ func TestAppOpenAPIRoutesDoesNotExposeMutableInternals(t *testing.T) {
 	}
 }
 
+func TestAppOpenAPIServesDocumentAtConfiguredPath(t *testing.T) {
+	app := New()
+	app.OpenAPI("/docs/openapi.json", OpenAPITitle("Example API"), OpenAPIVersion("2.3.4"))
+	app.Import(NewModule(ModuleConfig{
+		Name:      "TypedModule",
+		Providers: Providers(Controller(newTypedRouteController)),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	router, ok := app.router.(*defaultRouter)
+	if !ok {
+		t.Fatalf("router = %T, want *defaultRouter", app.router)
+	}
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs/openapi.json", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if contentType := recorder.Header().Get("Content-Type"); contentType != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", contentType)
+	}
+
+	document := decodeOpenAPIDocument(t, recorder.Body.Bytes())
+	if document["openapi"] != "3.0.3" {
+		t.Fatalf("openapi = %q, want 3.0.3", document["openapi"])
+	}
+	info := documentObject(t, document, "info")
+	if info["title"] != "Example API" {
+		t.Fatalf("info.title = %q, want Example API", info["title"])
+	}
+	if info["version"] != "2.3.4" {
+		t.Fatalf("info.version = %q, want 2.3.4", info["version"])
+	}
+}
+
+func TestAppOpenAPIDocumentIncludesOperationsResponsesAndSchemas(t *testing.T) {
+	app := New()
+	app.OpenAPI("")
+	app.Import(NewModule(ModuleConfig{
+		Name:      "TypedModule",
+		Providers: Providers(Controller(newTypedRouteController)),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	body := serveOpenAPI(t, app, "/openapi.json")
+	document := decodeOpenAPIDocument(t, body)
+	paths := documentObject(t, document, "paths")
+	typedPath := objectFromAny(t, paths["/typed/{id}"])
+	post := objectFromAny(t, typedPath["post"])
+
+	if post["operationId"] != "TypedRouteController.Show" {
+		t.Fatalf("operationId = %q, want TypedRouteController.Show", post["operationId"])
+	}
+	tags := arrayFromAny(t, post["tags"])
+	if len(tags) != 1 || tags[0] != "typed" {
+		t.Fatalf("tags = %#v, want [typed]", tags)
+	}
+	if post["summary"] != "Show typed route" {
+		t.Fatalf("summary = %q, want route summary", post["summary"])
+	}
+	if post["description"] != "Returns a typed response from bound request data." {
+		t.Fatalf("description = %q, want route description", post["description"])
+	}
+
+	responses := objectFromAny(t, post["responses"])
+	created := objectFromAny(t, responses["201"])
+	if created["description"] != "Created" {
+		t.Fatalf("201 description = %q, want Created", created["description"])
+	}
+	content := objectFromAny(t, created["content"])
+	jsonMedia := objectFromAny(t, content["application/json"])
+	responseSchema := objectFromAny(t, jsonMedia["schema"])
+	if responseSchema["$ref"] != "#/components/schemas/typedRouteResponse" {
+		t.Fatalf("response schema = %#v, want typedRouteResponse ref", responseSchema)
+	}
+
+	components := documentObject(t, document, "components")
+	schemas := objectFromAny(t, components["schemas"])
+	if schemas["typedRouteRequest"] == nil {
+		t.Fatal("missing typedRouteRequest component")
+	}
+	if schemas["typedRouteResponse"] == nil {
+		t.Fatal("missing typedRouteResponse component")
+	}
+}
+
+func TestAppOpenAPIDocumentIncludesRequestParametersAndBody(t *testing.T) {
+	app := New()
+	app.OpenAPI("")
+	app.Import(NewModule(ModuleConfig{
+		Name:      "TypedModule",
+		Providers: Providers(Controller(newTypedRouteController)),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	document := decodeOpenAPIDocument(t, serveOpenAPI(t, app, "/openapi.json"))
+	post := objectFromAny(t, objectFromAny(t, documentObject(t, document, "paths")["/typed/{id}"])["post"])
+	parameters := arrayFromAny(t, post["parameters"])
+	seen := map[string]string{}
+	for _, parameter := range parameters {
+		item := objectFromAny(t, parameter)
+		name, ok := item["name"].(string)
+		if !ok {
+			t.Fatalf("parameter name = %#v, want string", item["name"])
+		}
+		in, ok := item["in"].(string)
+		if !ok {
+			t.Fatalf("parameter in = %#v, want string", item["in"])
+		}
+		seen[name] = in
+	}
+	wantParameters := map[string]string{
+		"id":         "path",
+		"page":       "query",
+		"featured":   "query",
+		"X-Trace-ID": "header",
+	}
+	for name, in := range wantParameters {
+		if seen[name] != in {
+			t.Fatalf("parameter %q in = %q, want %q; all parameters %#v", name, seen[name], in, parameters)
+		}
+	}
+
+	requestBody := objectFromAny(t, post["requestBody"])
+	content := objectFromAny(t, requestBody["content"])
+	jsonMedia := objectFromAny(t, content["application/json"])
+	bodySchema := objectFromAny(t, jsonMedia["schema"])
+	properties := objectFromAny(t, bodySchema["properties"])
+	if properties["name"] == nil {
+		t.Fatalf("request body properties = %#v, want name", properties)
+	}
+	if properties["id"] != nil || properties["page"] != nil || properties["trace"] != nil {
+		t.Fatalf("request body included non-json fields: %#v", properties)
+	}
+}
+
+func TestAppOpenAPIOutputIsDeterministic(t *testing.T) {
+	app := New()
+	app.OpenAPI("")
+	app.Import(NewModule(ModuleConfig{
+		Name:      "TypedModule",
+		Providers: Providers(Controller(newTypedRouteController)),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	first := serveOpenAPI(t, app, "/openapi.json")
+	second := serveOpenAPI(t, app, "/openapi.json")
+	if string(first) != string(second) {
+		t.Fatalf("OpenAPI output is not deterministic:\nfirst:  %s\nsecond: %s", first, second)
+	}
+}
+
+func TestAppWithoutOpenAPIBehavesUnchanged(t *testing.T) {
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name:      "TypedModule",
+		Providers: Providers(Controller(newTypedRouteController)),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	router, ok := app.router.(*defaultRouter)
+	if !ok {
+		t.Fatalf("router = %T, want *defaultRouter", app.router)
+	}
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/openapi.json", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
+	}
+}
+
 func TestAppDuplicateRouteReturnsUsefulError(t *testing.T) {
 	app := New(WithRouter(newFakeRouter()))
 	app.Import(NewModule(ModuleConfig{
@@ -674,6 +866,56 @@ func (c *orderedControllerB) GestController() ControllerDefinition {
 
 func emptyHandler(ctx *Context) error {
 	return ctx.NoContent(http.StatusNoContent)
+}
+
+func serveOpenAPI(t *testing.T, app *App, path string) []byte {
+	t.Helper()
+
+	router, ok := app.router.(*defaultRouter)
+	if !ok {
+		t.Fatalf("router = %T, want *defaultRouter", app.router)
+	}
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	return recorder.Body.Bytes()
+}
+
+func decodeOpenAPIDocument(t *testing.T, body []byte) map[string]any {
+	t.Helper()
+
+	var document map[string]any
+	if err := json.Unmarshal(body, &document); err != nil {
+		t.Fatalf("decode OpenAPI document: %v\n%s", err, body)
+	}
+	return document
+}
+
+func documentObject(t *testing.T, document map[string]any, key string) map[string]any {
+	t.Helper()
+	return objectFromAny(t, document[key])
+}
+
+func objectFromAny(t *testing.T, value any) map[string]any {
+	t.Helper()
+
+	object, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("value = %#v (%T), want object", value, value)
+	}
+	return object
+}
+
+func arrayFromAny(t *testing.T, value any) []any {
+	t.Helper()
+
+	array, ok := value.([]any)
+	if !ok {
+		t.Fatalf("value = %#v (%T), want array", value, value)
+	}
+	return array
 }
 
 type fakeRouter struct {

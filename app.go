@@ -17,6 +17,7 @@ type App struct {
 	modules   []Module
 	validator Validator
 	routes    []OpenAPIRoute
+	openapi   *openAPIConfig
 	bootLogs  bool
 	built     bool
 }
@@ -65,6 +66,12 @@ func (a *App) OpenAPIRoutes() []OpenAPIRoute {
 	return cloneOpenAPIRoutes(a.routes)
 }
 
+// OpenAPI serves an OpenAPI JSON document built from registered route metadata.
+func (a *App) OpenAPI(routePath string, options ...OpenAPIOption) {
+	config := newOpenAPIConfig(routePath, options...)
+	a.openapi = &config
+}
+
 // Listen builds the app and starts the configured router.
 func (a *App) Listen(addr string) error {
 	if err := a.bootstrap(); err != nil {
@@ -104,8 +111,37 @@ func (a *App) bootstrap() error {
 			}
 		}
 	}
+	if err := a.registerOpenAPI(seenRoutes); err != nil {
+		return err
+	}
 
 	a.built = true
+	return nil
+}
+
+func (a *App) registerOpenAPI(seenRoutes map[string]struct{}) error {
+	if a.openapi == nil {
+		return nil
+	}
+	fullPath := joinRoutePath("", a.openapi.Path)
+	key := http.MethodGet + " " + fullPath
+	if _, ok := seenRoutes[key]; ok {
+		return duplicateRouteError(key)
+	}
+	seenRoutes[key] = struct{}{}
+
+	document, err := buildOpenAPIDocument(*a.openapi, a.routes)
+	if err != nil {
+		return err
+	}
+	a.router.Handle(RouteRuntimeConfig{
+		Method: http.MethodGet,
+		Path:   fullPath,
+		Handler: func(ctx *Context) error {
+			return writeOpenAPIDocument(ctx, document)
+		},
+		Validator: a.validator,
+	})
 	return nil
 }
 
