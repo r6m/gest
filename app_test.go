@@ -129,6 +129,7 @@ func (c *typedRouteController) Show(ctx *Context, req *typedRouteRequest) (*type
 func (c *typedRouteController) GestController() ControllerDefinition {
 	return ControllerDefinition{
 		Name:     "TypedRouteController",
+		Tag:      "typed",
 		BasePath: "/typed",
 		Routes: []RouteDefinition{
 			{
@@ -139,6 +140,10 @@ func (c *typedRouteController) GestController() ControllerDefinition {
 				Request:  (*typedRouteRequest)(nil),
 				Response: (*typedRouteResponse)(nil),
 				Statuses: []int{http.StatusCreated},
+				Metadata: RouteMetadata{
+					Summary:     "Show typed route",
+					Description: "Returns a typed response from bound request data.",
+				},
 			},
 		},
 	}
@@ -291,6 +296,143 @@ func TestAppConstructorInjectionWorksForControllerDependency(t *testing.T) {
 	}
 	if got := recorder.Body.String(); got != "{\"message\":\"hello\"}\n" {
 		t.Fatalf("body = %q, want injected service response", got)
+	}
+}
+
+func TestAppOpenAPIRoutesCapturesHandWrittenMetadata(t *testing.T) {
+	app := New(WithRouter(newFakeRouter()))
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(
+			Provide(newAppService),
+			Controller(newAppController),
+		),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	routes := app.OpenAPIRoutes()
+	if len(routes) != 1 {
+		t.Fatalf("routes = %d, want 1", len(routes))
+	}
+	route := routes[0]
+	if route.ControllerName != "AppController" {
+		t.Fatalf("ControllerName = %q, want AppController", route.ControllerName)
+	}
+	if route.BasePath != "/api" {
+		t.Fatalf("BasePath = %q, want /api", route.BasePath)
+	}
+	if route.RouteName != "Hello" {
+		t.Fatalf("RouteName = %q, want Hello", route.RouteName)
+	}
+	if route.Method != http.MethodGet {
+		t.Fatalf("Method = %q, want GET", route.Method)
+	}
+	if route.Path != "/api/hello" {
+		t.Fatalf("Path = %q, want /api/hello", route.Path)
+	}
+}
+
+func TestAppOpenAPIRoutesCapturesGeneratedStyleMetadata(t *testing.T) {
+	app := New(WithRouter(newFakeRouter()))
+	app.Import(NewModule(ModuleConfig{
+		Name:      "TypedModule",
+		Providers: Providers(Controller(newTypedRouteController)),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	routes := app.OpenAPIRoutes()
+	if len(routes) != 1 {
+		t.Fatalf("routes = %d, want 1", len(routes))
+	}
+	route := routes[0]
+	if route.ControllerName != "TypedRouteController" {
+		t.Fatalf("ControllerName = %q, want TypedRouteController", route.ControllerName)
+	}
+	if route.Tag != "typed" {
+		t.Fatalf("Tag = %q, want typed", route.Tag)
+	}
+	if route.RouteName != "Show" {
+		t.Fatalf("RouteName = %q, want Show", route.RouteName)
+	}
+	if route.Path != "/typed/{id}" {
+		t.Fatalf("Path = %q, want /typed/{id}", route.Path)
+	}
+	if len(route.Statuses) != 1 || route.Statuses[0] != http.StatusCreated {
+		t.Fatalf("Statuses = %#v, want [201]", route.Statuses)
+	}
+	if route.Summary != "Show typed route" {
+		t.Fatalf("Summary = %q, want generated-style summary", route.Summary)
+	}
+	if route.Description != "Returns a typed response from bound request data." {
+		t.Fatalf("Description = %q, want generated-style description", route.Description)
+	}
+	if route.Request != (*typedRouteRequest)(nil) {
+		t.Fatalf("Request = %#v, want typed request metadata", route.Request)
+	}
+	if route.Response != (*typedRouteResponse)(nil) {
+		t.Fatalf("Response = %#v, want typed response metadata", route.Response)
+	}
+}
+
+func TestAppOpenAPIRoutesOrderIsDeterministic(t *testing.T) {
+	app := New(WithRouter(newFakeRouter()))
+	app.Import(
+		NewModule(ModuleConfig{
+			Name:      "FirstModule",
+			Providers: Providers(Controller(newOrderedControllerA)),
+		}),
+		NewModule(ModuleConfig{
+			Name:      "SecondModule",
+			Providers: Providers(Controller(newOrderedControllerB)),
+		}),
+	)
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	routes := app.OpenAPIRoutes()
+	got := make([]string, 0, len(routes))
+	for _, route := range routes {
+		got = append(got, route.ControllerName+"."+route.RouteName)
+	}
+	want := []string{"OrderedControllerA.First", "OrderedControllerA.Second", "OrderedControllerB.Third"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("route order = %#v, want %#v", got, want)
+	}
+}
+
+func TestAppOpenAPIRoutesDoesNotExposeMutableInternals(t *testing.T) {
+	app := New(WithRouter(newFakeRouter()))
+	app.Import(NewModule(ModuleConfig{
+		Name:      "TypedModule",
+		Providers: Providers(Controller(newTypedRouteController)),
+	}))
+
+	err := app.bootstrap()
+	if err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	routes := app.OpenAPIRoutes()
+	routes[0].ControllerName = "Changed"
+	routes[0].Statuses[0] = http.StatusAccepted
+
+	fresh := app.OpenAPIRoutes()
+	if fresh[0].ControllerName != "TypedRouteController" {
+		t.Fatalf("ControllerName mutated to %q", fresh[0].ControllerName)
+	}
+	if fresh[0].Statuses[0] != http.StatusCreated {
+		t.Fatalf("Statuses mutated to %#v", fresh[0].Statuses)
 	}
 }
 
@@ -480,6 +622,58 @@ func (c *errorController) GestController() ControllerDefinition {
 			},
 		},
 	}
+}
+
+type orderedControllerA struct{}
+
+func newOrderedControllerA() *orderedControllerA {
+	return &orderedControllerA{}
+}
+
+func (c *orderedControllerA) GestController() ControllerDefinition {
+	return ControllerDefinition{
+		Name:     "OrderedControllerA",
+		BasePath: "/ordered",
+		Routes: []RouteDefinition{
+			{
+				Name:    "First",
+				Method:  http.MethodGet,
+				Path:    "/first",
+				Handler: emptyHandler,
+			},
+			{
+				Name:    "Second",
+				Method:  http.MethodGet,
+				Path:    "/second",
+				Handler: emptyHandler,
+			},
+		},
+	}
+}
+
+type orderedControllerB struct{}
+
+func newOrderedControllerB() *orderedControllerB {
+	return &orderedControllerB{}
+}
+
+func (c *orderedControllerB) GestController() ControllerDefinition {
+	return ControllerDefinition{
+		Name:     "OrderedControllerB",
+		BasePath: "/ordered",
+		Routes: []RouteDefinition{
+			{
+				Name:    "Third",
+				Method:  http.MethodGet,
+				Path:    "/third",
+				Handler: emptyHandler,
+			},
+		},
+	}
+}
+
+func emptyHandler(ctx *Context) error {
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 type fakeRouter struct {

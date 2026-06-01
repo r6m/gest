@@ -132,7 +132,8 @@ func TestRuntimePackagesDoNotImportCLIOrTooling(t *testing.T) {
 		for _, dep := range pkg.Deps {
 			if dep == "github.com/r6m/gest/internal/cli" ||
 				dep == "github.com/r6m/gest/internal/config" ||
-				dep == "github.com/r6m/gest/internal/generator" {
+				dep == "github.com/r6m/gest/internal/generator" ||
+				strings.Contains(strings.ToLower(dep), "swagger") {
 				t.Fatalf("runtime package %s imports tooling package %s", pkg.ImportPath, dep)
 			}
 		}

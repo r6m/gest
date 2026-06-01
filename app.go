@@ -16,6 +16,7 @@ type App struct {
 	router    RouterAdapter
 	modules   []Module
 	validator Validator
+	routes    []OpenAPIRoute
 	bootLogs  bool
 	built     bool
 }
@@ -57,6 +58,11 @@ func WithValidator(validator Validator) Option {
 // Import adds modules to the application.
 func (a *App) Import(modules ...Module) {
 	a.modules = append(a.modules, modules...)
+}
+
+// OpenAPIRoutes returns the route metadata collected during bootstrap.
+func (a *App) OpenAPIRoutes() []OpenAPIRoute {
+	return cloneOpenAPIRoutes(a.routes)
 }
 
 // Listen builds the app and starts the configured router.
@@ -122,6 +128,7 @@ func (a *App) registerController(provider *providerState, seenRoutes map[string]
 			return duplicateRouteError(key)
 		}
 		seenRoutes[key] = struct{}{}
+		a.routes = append(a.routes, newOpenAPIRoute(definition, route, fullPath))
 		a.router.Handle(RouteRuntimeConfig{
 			Method:    route.Method,
 			Path:      fullPath,
