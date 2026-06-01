@@ -126,6 +126,32 @@ func TestJSONRequestErrorHandlerReturnsNoContentOnNilError(t *testing.T) {
 	}
 }
 
+func TestJSONBindsRequestBeforeCallingHandler(t *testing.T) {
+	type requestDTO struct {
+		ID string `param:"id"`
+	}
+
+	handler := JSON(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
+		return &jsonResponse{Name: req.ID}, nil
+	})
+
+	recorder, request := newJSONTestContext()
+	context := NewContext(recorder, request)
+	context.SetParam("id", "user-1")
+
+	if err := handler(context); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	var body jsonResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Name != "user-1" {
+		t.Fatalf("Name = %q, want bound param", body.Name)
+	}
+}
+
 func TestJSONContextErrorHandlerReturnsNoContentOnNilError(t *testing.T) {
 	handler := JSON(func(ctx *Context) error {
 		return nil

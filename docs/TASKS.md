@@ -151,7 +151,7 @@ Goal: make the preferred controller style work end to end.
 | ID | Status | Task | Description |
 | --- | --- | --- | --- |
 | P3.1 | Done | Implement `gest.JSON` | Support typed handlers returning `(*Res, error)` or `error`. Map nil responses to no-content. |
-| P3.2 | Planned | Implement request binding | Bind `param`, `query`, `header`, and JSON body tags into request DTO structs. |
+| P3.2 | Done | Implement request binding | Bind `param`, `query`, `header`, and JSON body tags into request DTO structs. |
 | P3.3 | Planned | Add default values | Support simple `default` tags for query/header fields where conversion is unambiguous. |
 | P3.4 | Planned | Add validation hook | Integrate an optional validator behind `Context.Validate`; keep validation module optional. |
 | P3.5 | Planned | Add type conversion | Convert strings into common scalar types and return useful binding errors. |

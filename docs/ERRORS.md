@@ -118,6 +118,7 @@ Binding errors occur while reading request params, query values, headers, and JS
 | `BINDING_MISSING_REQUIRED_QUERY` | `BadRequest` | `route`, `field` | Name the missing query key. Hint to add `?key=value` when obvious. |
 | `BINDING_MISSING_REQUIRED_HEADER` | `BadRequest` | `route`, `field` | Name the missing header. |
 | `BINDING_MISSING_REQUIRED_BODY_FIELD` | `BadRequest` | `route`, `field` | Name the missing JSON field path. |
+| `BINDING_MALFORMED_JSON` | `BadRequest` | `route`, `field` | State that the JSON body could not be parsed. |
 | `BINDING_CONVERSION_FAILURE` | `BadRequest` | `route`, `field` | Name the received value and target type when safe. Hint with the expected format when obvious. |
 | `BINDING_VALIDATION_FAILURE` | `BadRequest` | `route`, `field` when available | Include the validation rule or validator message. Hint with the expected constraint when obvious. |
 

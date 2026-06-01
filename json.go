@@ -82,6 +82,10 @@ func callContextErrorHandler(handler reflect.Value, ctx *Context, config handler
 
 func callRequestErrorHandler(handler reflect.Value, ctx *Context, config handlerConfig) error {
 	request := reflect.New(handler.Type().In(1).Elem())
+	if err := ctx.BindRequest(request.Interface()); err != nil {
+		return err
+	}
+
 	results := handler.Call([]reflect.Value{reflect.ValueOf(ctx), request})
 	if err := errorValue(results[0]); err != nil {
 		return err
@@ -92,6 +96,10 @@ func callRequestErrorHandler(handler reflect.Value, ctx *Context, config handler
 
 func callRequestResponseErrorHandler(handler reflect.Value, ctx *Context, config handlerConfig) error {
 	request := reflect.New(handler.Type().In(1).Elem())
+	if err := ctx.BindRequest(request.Interface()); err != nil {
+		return err
+	}
+
 	results := handler.Call([]reflect.Value{reflect.ValueOf(ctx), request})
 	if err := errorValue(results[1]); err != nil {
 		return err

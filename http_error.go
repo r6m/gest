@@ -23,6 +23,7 @@ type HTTPError struct {
 	Code    string    `json:"code"`
 	Message string    `json:"message"`
 	Hint    string    `json:"hint,omitempty"`
+	Field   string    `json:"field,omitempty"`
 }
 
 func (e *HTTPError) Error() string {
@@ -91,6 +92,16 @@ func httpError(kind ErrorKind, code string, message string) error {
 		Kind:    kind,
 		Code:    code,
 		Message: message,
+	}
+}
+
+func bindingError(code string, message string, field string, hint string) error {
+	return &HTTPError{
+		Kind:    ErrorKindBadRequest,
+		Code:    code,
+		Message: message,
+		Field:   field,
+		Hint:    hint,
 	}
 }
 
