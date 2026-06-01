@@ -1,0 +1,137 @@
+# Gest Decisions
+
+This file records settled technical decisions. Keep entries short and concrete.
+
+## ADR-0001: Chi/net-http Is The First-Party Router
+
+Status: Accepted
+
+Gest starts with Chi/net-http as the only first-party router adapter.
+
+Rationale:
+
+- `net/http` is the standard Go baseline.
+- Chi is small and idiomatic.
+- Starting with one adapter keeps context, middleware, routing, and tests coherent.
+
+Consequences:
+
+- No first-party Fiber adapter is planned.
+- `gest.Context` must expose net-http escape hatches.
+- Adapter abstractions should not pretend all engines have identical capabilities.
+
+## ADR-0002: No Built-In Database Module
+
+Status: Accepted
+
+Gest will not ship a built-in database module or ORM abstraction.
+
+Rationale:
+
+- Go teams use different database approaches: `database/sql`, pgx, sqlc, ent, bun, gorm, and others.
+- A generic framework database module would either be too thin to matter or too opinionated.
+- Users should bring their own database modules and expose repositories/services through normal providers.
+
+Consequences:
+
+- Official examples must not rely on `database.Module(...)`.
+- Provider errors should suggest adding a provider or importing a user-owned module.
+- Future docs may show database integration patterns, not a blessed ORM.
+
+## ADR-0003: Generated Code Must Be Boring
+
+Status: Accepted
+
+Generated `*_gest.gen.go` files must be readable, deterministic Go that calls public runtime APIs.
+
+Rationale:
+
+- Framework users need to debug generated output.
+- Deterministic output makes tests, reviews, and CI stable.
+- Public API calls keep runtime behavior explicit.
+
+Consequences:
+
+- No generated `init()` route registration.
+- No hidden global route registry.
+- No runtime source scanning.
+- Generator tests must include golden output and stable repeated output.
+
+## ADR-0004: Runtime And Generator Are Separate
+
+Status: Accepted
+
+The runtime must not import generator, CLI, AST parser, filesystem scanner, or config-loader packages.
+
+Rationale:
+
+- Runtime should work with hand-written metadata.
+- Tests stay simpler when booting an app does not require source files.
+- Applications should not pay for generator dependencies at runtime.
+
+Consequences:
+
+- Runtime consumes explicit module/provider/controller definitions.
+- CLI and generator can orchestrate files and code generation.
+- Package dependency rules must be checked during implementation reviews.
+
+## ADR-0005: Singleton DI First
+
+Status: Accepted
+
+V0 supports singleton constructor injection only.
+
+Rationale:
+
+- Singleton DI is enough to prove module imports, exports, providers, and controllers.
+- Request/transient scopes require more lifecycle, concurrency, and context design.
+- A conservative container reduces early framework magic.
+
+Consequences:
+
+- `Request` and `Transient` scopes are deferred.
+- If scope options exist in the API sketch, implementations must reject unsupported scopes clearly.
+- User examples should use constructors, not container lookups.
+
+## ADR-0006: Tests And Lint Are Required
+
+Status: Accepted
+
+Every non-documentation implementation task must include tests and pass lint before being marked done.
+
+Required commands:
+
+```bash
+rtk go test ./...
+rtk proxy golangci-lint run ./...
+```
+
+Rationale:
+
+- Framework regressions are expensive for users.
+- Generator behavior needs deterministic tests from the beginning.
+- Lint keeps public API code and generated code disciplined.
+
+Consequences:
+
+- The root `.golangci.yml` is part of the project contract.
+- Documentation-only tasks may skip tests and lint only when no Go packages exist or the blocker is documented.
+- Agents must report exact verification results.
+
+## ADR-0007: Workflow Tools Come After Core Reliability
+
+Status: Accepted
+
+`gest dev` is deferred until `gest generate` and `gest build` are reliable.
+
+Rationale:
+
+- File watching and process restarts are a separate product surface.
+- A dev server can hide generator/runtime defects if added too early.
+- Keeping the previous process alive on build failure requires careful process handling.
+
+Consequences:
+
+- Early CLI work focuses on `gest generate` and `gest build`.
+- `gest dev` remains in the developer-experience phase.
+- Build and generator diagnostics must be good before watch mode exists.
