@@ -13,7 +13,7 @@ type tokenTestInterface interface {
 
 func TestTokenOfPointerCapturesPointerType(t *testing.T) {
 	token := TokenOf[*tokenTestService]()
-	want := reflect.TypeOf((*tokenTestService)(nil))
+	want := reflect.TypeFor[*tokenTestService]()
 
 	if token.Type != want {
 		t.Fatalf("Type = %v, want %v", token.Type, want)
@@ -25,7 +25,7 @@ func TestTokenOfPointerCapturesPointerType(t *testing.T) {
 
 func TestTokenOfInterfaceCapturesInterfaceType(t *testing.T) {
 	token := TokenOf[tokenTestInterface]()
-	want := reflect.TypeOf((*tokenTestInterface)(nil)).Elem()
+	want := reflect.TypeFor[tokenTestInterface]()
 
 	if token.Type != want {
 		t.Fatalf("Type = %v, want %v", token.Type, want)
@@ -82,7 +82,7 @@ func TestTokenStringOutputIsStable(t *testing.T) {
 		{
 			name: "type and name",
 			token: Token{
-				Type: reflect.TypeOf((*tokenTestService)(nil)),
+				Type: reflect.TypeFor[*tokenTestService](),
 				Name: "primary",
 			},
 			want: `type:*gest.tokenTestService name:"primary"`,

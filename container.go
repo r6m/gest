@@ -3,6 +3,7 @@ package gest
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -148,10 +149,8 @@ func newProviderState(module *moduleContainer, provider Provider) (*providerStat
 }
 
 func (p *providerState) resolve(path []Token) (any, error) {
-	for _, token := range path {
-		if token == p.primary {
-			return nil, cycleError(append(path, p.primary))
-		}
+	if slices.Contains(path, p.primary) {
+		return nil, cycleError(append(path, p.primary))
 	}
 
 	if p.initialized {

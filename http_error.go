@@ -56,8 +56,7 @@ func Internal(message string) error {
 
 // HTTPStatus maps framework errors to HTTP status codes.
 func HTTPStatus(err error) int {
-	var frameworkError *HTTPError
-	if errors.As(err, &frameworkError) {
+	if frameworkError, ok := errors.AsType[*HTTPError](err); ok {
 		switch frameworkError.Kind {
 		case ErrorKindBadRequest:
 			return http.StatusBadRequest
@@ -96,8 +95,7 @@ func httpError(kind ErrorKind, code string, message string) error {
 }
 
 func toHTTPError(err error) *HTTPError {
-	var frameworkError *HTTPError
-	if errors.As(err, &frameworkError) {
+	if frameworkError, ok := errors.AsType[*HTTPError](err); ok {
 		return frameworkError
 	}
 

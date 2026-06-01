@@ -18,7 +18,7 @@ type Token struct {
 
 // TokenOf returns a token for T.
 func TokenOf[T any]() Token {
-	return Token{Type: reflect.TypeOf((*T)(nil)).Elem()}
+	return Token{Type: reflect.TypeFor[T]()}
 }
 
 // Named returns a name-only token.

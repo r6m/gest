@@ -91,7 +91,7 @@ func TestWithScopeSetsScopeWithoutBehavior(t *testing.T) {
 
 func TestAsAddsTokenAlias(t *testing.T) {
 	provider := Provide(newProviderTestService, As[providerTestAlias]())
-	want := []Token{{Type: reflect.TypeOf((*providerTestAlias)(nil)).Elem()}}
+	want := []Token{{Type: reflect.TypeFor[providerTestAlias]()}}
 
 	if !reflect.DeepEqual(provider.Aliases, want) {
 		t.Fatalf("Aliases = %#v, want %#v", provider.Aliases, want)
