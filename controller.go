@@ -40,9 +40,6 @@ type RouteMetadata struct {
 // HandlerFunc is the runtime route handler shape.
 type HandlerFunc func(ctx *Context) error
 
-// Context is the minimal runtime context placeholder. P1.8 adds behavior.
-type Context struct{}
-
 // GuardFactory is a placeholder for later guard resolution behavior.
 type GuardFactory func(Container) (any, error)
 

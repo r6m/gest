@@ -1,0 +1,108 @@
+package gest
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+)
+
+// Context wraps net/http request and response objects without hiding them.
+type Context struct {
+	response http.ResponseWriter
+	request  *http.Request
+	params   map[string]string
+	values   map[string]any
+	native   any
+	engine   string
+}
+
+// NewContext creates a net/http-backed context.
+func NewContext(response http.ResponseWriter, request *http.Request) *Context {
+	return &Context{
+		response: response,
+		request:  request,
+		params:   make(map[string]string),
+		values:   make(map[string]any),
+		native:   request.Context(),
+		engine:   "net/http",
+	}
+}
+
+// Param returns a path parameter by name.
+func (c *Context) Param(name string) string {
+	return c.params[name]
+}
+
+// SetParam stores a path parameter for router adapters.
+func (c *Context) SetParam(name string, value string) {
+	c.params[name] = value
+}
+
+// Query returns the first query value by name.
+func (c *Context) Query(name string) string {
+	return c.request.URL.Query().Get(name)
+}
+
+// Header returns the request header value by name.
+func (c *Context) Header(name string) string {
+	return c.request.Header.Get(name)
+}
+
+// BearerToken returns the bearer token from Authorization, if present.
+func (c *Context) BearerToken() string {
+	value := strings.TrimSpace(c.Header("Authorization"))
+	if value == "" {
+		return ""
+	}
+
+	scheme, token, ok := strings.Cut(value, " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return ""
+	}
+
+	return strings.TrimSpace(token)
+}
+
+// JSON writes a JSON response.
+func (c *Context) JSON(status int, value any) error {
+	c.response.Header().Set("Content-Type", "application/json")
+	c.response.WriteHeader(status)
+	return json.NewEncoder(c.response).Encode(value)
+}
+
+// NoContent writes a response status with no body.
+func (c *Context) NoContent(status int) error {
+	c.response.WriteHeader(status)
+	return nil
+}
+
+// Set stores a request-local value.
+func (c *Context) Set(key string, value any) {
+	c.values[key] = value
+}
+
+// Get returns a request-local value.
+func (c *Context) Get(key string) (any, bool) {
+	value, ok := c.values[key]
+	return value, ok
+}
+
+// Native returns the underlying native router context.
+func (c *Context) Native() any {
+	return c.native
+}
+
+// Engine returns the backing router engine name.
+func (c *Context) Engine() string {
+	return c.engine
+}
+
+// RawResponse returns the underlying net/http response writer.
+func (c *Context) RawResponse() http.ResponseWriter {
+	return c.response
+}
+
+// RawRequest returns the underlying net/http request.
+func (c *Context) RawRequest() *http.Request {
+	return c.request
+}
