@@ -75,7 +75,7 @@ Goal: make the MVP contract explicit before implementation starts.
 | --- | --- | --- | --- |
 | P0.1 | Done | Define MVP surface | Document the v0 promise: modules, providers, singleton DI, generated controller metadata, typed JSON handlers, Chi adapter, basic context, CLI generate/build. |
 | P0.2 | Done | Define package layout | Choose package boundaries for `gest`, `router/chiadapter`, generator internals, and `cmd/gest`. Keep runtime independent from generator code. |
-| P0.3 | Planned | Define error model | Specify framework error types, HTTP status mapping, validation errors, DI errors, route conflicts, and generator diagnostics. |
+| P0.3 | Done | Define error model | Specify framework error types, HTTP status mapping, validation errors, DI errors, route conflicts, and generator diagnostics. |
 | P0.4 | Done | Define test strategy | Establish unit tests for DI/generator/binding and integration tests for a tiny app served through Chi. |
 | P0.5 | Done | Create example target app | Add a minimal example app that will become the acceptance fixture for all phases. |
 | P0.6 | Done | Define generated-code contract | Document the exact shape and restrictions for `*_gest.gen.go`: no `init()`, no hidden registries, deterministic output, public runtime calls only. |
