@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -16,6 +17,12 @@ type GeneratedFile struct {
 	Path    string
 	Package Package
 	Content []byte
+}
+
+// WriteResult describes whether a generated file changed on disk.
+type WriteResult struct {
+	Path    string
+	Written bool
 }
 
 // GenerateMetadataFiles emits deterministic GestController metadata files.
@@ -49,6 +56,43 @@ func GenerateMetadataFiles(controllers []Controller) ([]GeneratedFile, error) {
 	return files, nil
 }
 
+// WriteGeneratedFiles formats and writes generated files, skipping unchanged files.
+func WriteGeneratedFiles(files []GeneratedFile) ([]WriteResult, []Diagnostic) {
+	results := make([]WriteResult, 0, len(files))
+	diagnostics := make([]Diagnostic, 0)
+
+	for _, file := range files {
+		formatted, diagnostic, ok := formatGeneratedFile(file)
+		if !ok {
+			diagnostics = append(diagnostics, diagnostic)
+			continue
+		}
+
+		existing, err := os.ReadFile(file.Path)
+		if err == nil && bytes.Equal(existing, formatted) {
+			results = append(results, WriteResult{Path: file.Path})
+			continue
+		}
+		if err != nil && !os.IsNotExist(err) {
+			diagnostics = append(diagnostics, writeFailureDiagnostic(file.Path, err))
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(file.Path), 0o755); err != nil {
+			diagnostics = append(diagnostics, writeFailureDiagnostic(file.Path, err))
+			continue
+		}
+		if err := os.WriteFile(file.Path, formatted, 0o644); err != nil {
+			diagnostics = append(diagnostics, writeFailureDiagnostic(file.Path, err))
+			continue
+		}
+		results = append(results, WriteResult{Path: file.Path, Written: true})
+	}
+
+	sortDiagnostics(diagnostics)
+	return results, diagnostics
+}
+
 func generatePackageMetadata(controllers []Controller) ([]byte, error) {
 	if len(controllers) == 0 {
 		return nil, nil
@@ -73,6 +117,30 @@ func generatePackageMetadata(controllers []Controller) ([]byte, error) {
 		return nil, fmt.Errorf("format generated metadata for package %q: %w", pkg.ImportPath, err)
 	}
 	return formatted, nil
+}
+
+func formatGeneratedFile(file GeneratedFile) ([]byte, Diagnostic, bool) {
+	formatted, err := format.Source(file.Content)
+	if err != nil {
+		return nil, Diagnostic{
+			Severity: SeverityError,
+			Code:     DiagnosticFormatFailure,
+			Message:  "format generated source: " + err.Error(),
+			Hint:     "check generator output for invalid Go syntax",
+			File:     file.Path,
+		}, false
+	}
+	return formatted, Diagnostic{}, true
+}
+
+func writeFailureDiagnostic(path string, err error) Diagnostic {
+	return Diagnostic{
+		Severity: SeverityError,
+		Code:     DiagnosticWriteFailure,
+		Message:  "write generated file: " + err.Error(),
+		Hint:     "check that the output path is writable and not occupied by a directory",
+		File:     path,
+	}
 }
 
 func writeControllerMetadata(buffer *bytes.Buffer, controller Controller) {

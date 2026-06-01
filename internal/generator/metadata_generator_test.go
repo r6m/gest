@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestGenerateMetadataFilesGoldenSingleController(t *testing.T) {
@@ -190,13 +191,122 @@ func (c *UserController) List(ctx *gest.Context) error { return nil }
 `,
 	})
 	files := generateFixtureMetadata(t, root)
-	for _, file := range files {
-		if err := os.WriteFile(file.Path, file.Content, 0o644); err != nil {
-			t.Fatalf("WriteFile(%q) returned error: %v", file.Path, err)
-		}
+	results, diagnostics := WriteGeneratedFiles(files)
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v, want none", diagnostics)
+	}
+	if len(results) != 1 || !results[0].Written {
+		t.Fatalf("results = %#v, want one written file", results)
 	}
 
 	runGoTest(t, root)
+}
+
+func TestWriteGeneratedFilesFormatsOutput(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "users", "users_gest.gen.go")
+	files := []GeneratedFile{
+		{
+			Path:    path,
+			Content: []byte("package users\n\nfunc  value( )int{return 1}\n"),
+		},
+	}
+
+	results, diagnostics := WriteGeneratedFiles(files)
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v, want none", diagnostics)
+	}
+	if len(results) != 1 || !results[0].Written {
+		t.Fatalf("results = %#v, want written file", results)
+	}
+	got := readFile(t, path)
+	want := "package users\n\nfunc value() int { return 1 }\n"
+	if string(got) != want {
+		t.Fatalf("content = %q, want %q", got, want)
+	}
+	assertFileMode(t, path, 0o644)
+}
+
+func TestWriteGeneratedFilesInvalidSourceDiagnostic(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bad_gest.gen.go")
+	files := []GeneratedFile{{Path: path, Content: []byte("package bad\nfunc broken(")}}
+
+	results, diagnostics := WriteGeneratedFiles(files)
+	if len(results) != 0 {
+		t.Fatalf("results = %#v, want none", results)
+	}
+	assertWriteDiagnostic(t, diagnostics, DiagnosticFormatFailure, path)
+}
+
+func TestWriteGeneratedFilesFirstRunWritesSecondRunSkips(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "users_gest.gen.go")
+	files := []GeneratedFile{{Path: path, Content: []byte("package users\n")}}
+
+	firstResults, firstDiagnostics := WriteGeneratedFiles(files)
+	if len(firstDiagnostics) != 0 {
+		t.Fatalf("first diagnostics = %#v, want none", firstDiagnostics)
+	}
+	if len(firstResults) != 1 || !firstResults[0].Written {
+		t.Fatalf("first results = %#v, want written", firstResults)
+	}
+	firstInfo := statFile(t, path)
+
+	time.Sleep(10 * time.Millisecond)
+	secondResults, secondDiagnostics := WriteGeneratedFiles(files)
+	if len(secondDiagnostics) != 0 {
+		t.Fatalf("second diagnostics = %#v, want none", secondDiagnostics)
+	}
+	if len(secondResults) != 1 || secondResults[0].Written {
+		t.Fatalf("second results = %#v, want unchanged", secondResults)
+	}
+	secondInfo := statFile(t, path)
+	if !secondInfo.ModTime().Equal(firstInfo.ModTime()) {
+		t.Fatalf("modtime changed on unchanged write: first %s second %s", firstInfo.ModTime(), secondInfo.ModTime())
+	}
+}
+
+func TestWriteGeneratedFilesChangedSourceUpdatesFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "users_gest.gen.go")
+	first := []GeneratedFile{{Path: path, Content: []byte("package users\n\nconst Value = 1\n")}}
+	second := []GeneratedFile{{Path: path, Content: []byte("package users\n\nconst Value = 2\n")}}
+
+	_, diagnostics := WriteGeneratedFiles(first)
+	if len(diagnostics) != 0 {
+		t.Fatalf("first diagnostics = %#v, want none", diagnostics)
+	}
+	firstInfo := statFile(t, path)
+
+	time.Sleep(10 * time.Millisecond)
+	results, diagnostics := WriteGeneratedFiles(second)
+	if len(diagnostics) != 0 {
+		t.Fatalf("second diagnostics = %#v, want none", diagnostics)
+	}
+	if len(results) != 1 || !results[0].Written {
+		t.Fatalf("results = %#v, want changed file written", results)
+	}
+	if got := string(readFile(t, path)); !bytes.Contains([]byte(got), []byte("Value = 2")) {
+		t.Fatalf("content = %q, want updated value", got)
+	}
+	secondInfo := statFile(t, path)
+	if !secondInfo.ModTime().After(firstInfo.ModTime()) {
+		t.Fatalf("modtime did not advance after changed write: first %s second %s", firstInfo.ModTime(), secondInfo.ModTime())
+	}
+}
+
+func TestWriteGeneratedFilesWriteFailureDiagnostic(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "occupied", "users_gest.gen.go")
+	if err := os.WriteFile(filepath.Dir(path), []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("WriteFile occupied path returned error: %v", err)
+	}
+
+	results, diagnostics := WriteGeneratedFiles([]GeneratedFile{{Path: path, Content: []byte("package users\n")}})
+	if len(results) != 0 {
+		t.Fatalf("results = %#v, want none", results)
+	}
+	assertWriteDiagnostic(t, diagnostics, DiagnosticWriteFailure, path)
 }
 
 func generateFixtureMetadata(t *testing.T, root string) []GeneratedFile {
@@ -272,4 +382,53 @@ func projectRoot(t *testing.T) string {
 		t.Fatalf("Abs returned error: %v", err)
 	}
 	return root
+}
+
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) returned error: %v", path, err)
+	}
+	return content
+}
+
+func statFile(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%q) returned error: %v", path, err)
+	}
+	return info
+}
+
+func assertFileMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+
+	got := statFile(t, path).Mode().Perm()
+	if got != want {
+		t.Fatalf("mode = %s, want %s", got, want)
+	}
+}
+
+func assertWriteDiagnostic(t *testing.T, diagnostics []Diagnostic, code string, path string) {
+	t.Helper()
+
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics length = %d, want 1: %#v", len(diagnostics), diagnostics)
+	}
+	if diagnostics[0].Severity != SeverityError {
+		t.Fatalf("Severity = %q, want %q", diagnostics[0].Severity, SeverityError)
+	}
+	if diagnostics[0].Code != code {
+		t.Fatalf("Code = %q, want %q", diagnostics[0].Code, code)
+	}
+	if diagnostics[0].File != path {
+		t.Fatalf("File = %q, want %q", diagnostics[0].File, path)
+	}
+	if diagnostics[0].Message == "" || diagnostics[0].Hint == "" {
+		t.Fatalf("diagnostic = %#v, want message and hint", diagnostics[0])
+	}
 }

@@ -128,7 +128,7 @@ Goal: generate `GestController()` methods from simple comments.
 | P2.3 | Done | Parse route decorators | Support `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Status`, `@Summary`, and `@Description`. |
 | P2.4 | Done | Validate handler signatures | Accept only initial runtime-supported signatures. Produce file/line diagnostics for invalid signatures. |
 | P2.5 | Done | Generate metadata files | Emit deterministic `*_gest.gen.go` files with `GestController()` methods and route definitions. |
-| P2.6 | Planned | Format generated code | Run gofmt on generated files and avoid noisy output when files are unchanged. |
+| P2.6 | Done | Format generated code | Run gofmt on generated files and avoid noisy output when files are unchanged. |
 | P2.7 | Planned | Add generator tests | Use fixture packages to test parser behavior, generated output, invalid decorators, and invalid signatures. |
 
 Deferred:
