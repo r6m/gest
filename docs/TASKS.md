@@ -96,7 +96,7 @@ Goal: run an app with hand-written controller metadata before writing the genera
 
 | ID | Status | Task | Description |
 | --- | --- | --- | --- |
-| P1.1 | Planned | Implement module API | Add `Module`, `ModuleConfig`, `NewModule`, `Imports`, and `Providers`. Support `Name`, `Global`, `Imports`, `Providers`, and basic boot hooks only if needed. Defer `Lazy`. |
+| P1.1 | Done | Implement module API | Add `Module`, `ModuleConfig`, `NewModule`, `Imports`, and `Providers`. Support `Name`, `Global`, `Imports`, `Providers`, and basic boot hooks only if needed. Defer `Lazy`. |
 | P1.2 | Planned | Implement provider API | Add `Provider`, `Provide`, `Controller`, `Value`, `Export`, `Name`, `As`, and `WithScope`. Implement only singleton scope first; reject or ignore unsupported scopes with clear errors. |
 | P1.3 | Planned | Implement token model | Add `Token`, `TokenOf[T]`, and named tokens for advanced cases. Keep normal APIs constructor-oriented. |
 | P1.4 | Planned | Implement DI container | Support constructor injection, singleton caching, value providers, imports/exports, missing dependency errors, and cycle detection. |
