@@ -15,19 +15,19 @@ func TestParseControllerRoutesValidRouteForEachHTTPMethod(t *testing.T) {
 type UserController struct{}
 
 // @Get("/")
-func (c *UserController) List() {}
+func (c *UserController) List(ctx *gest.Context) error { return nil }
 
 // @Post("/")
-func (c *UserController) Create() {}
+func (c *UserController) Create(ctx *gest.Context) error { return nil }
 
 // @Put("/:id")
-func (c *UserController) Replace() {}
+func (c *UserController) Replace(ctx *gest.Context) error { return nil }
 
 // @Patch("/:id")
-func (c *UserController) Update() {}
+func (c *UserController) Update(ctx *gest.Context) error { return nil }
 
 // @Delete("/:id")
-func (c *UserController) Delete() {}
+func (c *UserController) Delete(ctx *gest.Context) error { return nil }
 `,
 	})
 	packages := scanFixturePackages(t, root)
@@ -69,7 +69,7 @@ type UserController struct{}
 // @Status(404)
 // @Summary("Find user")
 // @Description("Returns a user by ID")
-func (c *UserController) Find() {}
+func (c *UserController) Find(ctx *gest.Context) error { return nil }
 `,
 	})
 	packages := scanFixturePackages(t, root)
@@ -95,7 +95,7 @@ func (c *UserController) Find() {}
 
 func TestParseControllerRoutesMissingPathArgument(t *testing.T) {
 	root := routeErrorFixture(t, `// @Get
-func (c *UserController) Find() {}
+func (c *UserController) Find(ctx *gest.Context) error { return nil }
 `)
 
 	_, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
@@ -107,7 +107,7 @@ func (c *UserController) Find() {}
 
 func TestParseControllerRoutesNonStringPath(t *testing.T) {
 	root := routeErrorFixture(t, `// @Get(123)
-func (c *UserController) Find() {}
+func (c *UserController) Find(ctx *gest.Context) error { return nil }
 `)
 
 	_, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
@@ -119,7 +119,7 @@ func (c *UserController) Find() {}
 
 func TestParseControllerRoutesPathMustStartWithSlash(t *testing.T) {
 	root := routeErrorFixture(t, `// @Get("users")
-func (c *UserController) Find() {}
+func (c *UserController) Find(ctx *gest.Context) error { return nil }
 `)
 
 	_, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
@@ -132,7 +132,7 @@ func (c *UserController) Find() {}
 func TestParseControllerRoutesNonIntegerStatus(t *testing.T) {
 	root := routeErrorFixture(t, `// @Get("/")
 // @Status("ok")
-func (c *UserController) Find() {}
+func (c *UserController) Find(ctx *gest.Context) error { return nil }
 `)
 
 	_, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
@@ -145,7 +145,7 @@ func (c *UserController) Find() {}
 func TestParseControllerRoutesDuplicateHTTPMethodDecorators(t *testing.T) {
 	root := routeErrorFixture(t, `// @Get("/")
 // @Post("/")
-func (c *UserController) Find() {}
+func (c *UserController) Find(ctx *gest.Context) error { return nil }
 `)
 
 	_, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
@@ -179,7 +179,7 @@ func TestParseControllerRoutesDeferredDecoratorsReturnDiagnostics(t *testing.T) 
 	root := routeErrorFixture(t, `// @Get("/")
 // @Auth
 // @Roles("admin")
-func (c *UserController) Find() {}
+func (c *UserController) Find(ctx *gest.Context) error { return nil }
 `)
 
 	controllers, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
@@ -217,7 +217,7 @@ type ZController struct{}
 
 // @Get("/z")
 // @Auth
-func (c *ZController) Zed() {}
+func (c *ZController) Zed(ctx *gest.Context) error { return nil }
 `,
 		"a/controller.go": `package a
 
@@ -226,7 +226,7 @@ type AController struct{}
 
 // @Get("/a")
 // @Auth
-func (c *AController) Alpha() {}
+func (c *AController) Alpha(ctx *gest.Context) error { return nil }
 `,
 	})
 	packages := scanFixturePackages(t, root)

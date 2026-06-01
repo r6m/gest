@@ -25,15 +25,17 @@ type Controller struct {
 
 // Route describes method-level route decorator metadata.
 type Route struct {
-	Method      string
-	Path        string
-	HandlerName string
-	Statuses    []int
-	Summary     string
-	Description string
-	File        string
-	Line        int
-	Column      int
+	Method       string
+	Path         string
+	HandlerName  string
+	RequestType  string
+	ResponseType string
+	Statuses     []int
+	Summary      string
+	Description  string
+	File         string
+	Line         int
+	Column       int
 }
 
 // ParseControllers parses controller-level MVP decorators from scanned packages.
@@ -126,6 +128,13 @@ func parseControllerRoutesFile(pkg Package, file string) ([]Controller, []Diagno
 		route, routeDiagnostics := parseRouteDecorators(function.Name.Name, decorators)
 		diagnostics = append(diagnostics, routeDiagnostics...)
 		if route != nil {
+			signature, ok := validateHandlerSignature(function)
+			if !ok {
+				diagnostics = append(diagnostics, invalidHandlerSignatureDiagnostic(fileSet, function))
+				continue
+			}
+			route.RequestType = signature.RequestType
+			route.ResponseType = signature.ResponseType
 			controller.Routes = append(controller.Routes, *route)
 		}
 	}
@@ -349,6 +358,11 @@ type decorator struct {
 	Column int
 }
 
+type handlerSignature struct {
+	RequestType  string
+	ResponseType string
+}
+
 func decoratorsFromComments(fileSet *token.FileSet, comments *ast.CommentGroup) []decorator {
 	decorators := make([]decorator, 0)
 	for _, comment := range comments.List {
@@ -417,6 +431,166 @@ func parseSingleIntArgument(raw string) (int, bool) {
 		return 0, false
 	}
 	return value, true
+}
+
+func validateHandlerSignature(function *ast.FuncDecl) (handlerSignature, bool) {
+	params := function.Type.Params
+	results := function.Type.Results
+	if params == nil || len(params.List) == 0 || fieldCount(params.List) > 2 {
+		return handlerSignature{}, false
+	}
+
+	flattenedParams := flattenFields(params.List)
+	if len(flattenedParams) == 0 || len(flattenedParams) > 2 {
+		return handlerSignature{}, false
+	}
+	if !isGestContextPointer(flattenedParams[0]) {
+		return handlerSignature{}, false
+	}
+
+	signature := handlerSignature{}
+	if len(flattenedParams) == 2 {
+		requestType, ok := namedPointerType(flattenedParams[1])
+		if !ok {
+			return handlerSignature{}, false
+		}
+		signature.RequestType = requestType
+	}
+
+	flattenedResults := flattenResultFields(results)
+	switch len(flattenedResults) {
+	case 1:
+		if !isErrorType(flattenedResults[0]) {
+			return handlerSignature{}, false
+		}
+		return signature, true
+	case 2:
+		responseType, ok := namedPointerType(flattenedResults[0])
+		if !ok || !isErrorType(flattenedResults[1]) {
+			return handlerSignature{}, false
+		}
+		signature.ResponseType = responseType
+		return signature, true
+	default:
+		return handlerSignature{}, false
+	}
+}
+
+func fieldCount(fields []*ast.Field) int {
+	count := 0
+	for _, field := range fields {
+		if len(field.Names) == 0 {
+			count++
+			continue
+		}
+		count += len(field.Names)
+	}
+	return count
+}
+
+func flattenFields(fields []*ast.Field) []ast.Expr {
+	expressions := make([]ast.Expr, 0, fieldCount(fields))
+	for _, field := range fields {
+		count := len(field.Names)
+		if count == 0 {
+			count = 1
+		}
+		for range count {
+			expressions = append(expressions, field.Type)
+		}
+	}
+	return expressions
+}
+
+func flattenResultFields(results *ast.FieldList) []ast.Expr {
+	if results == nil {
+		return nil
+	}
+	return flattenFields(results.List)
+}
+
+func isGestContextPointer(expression ast.Expr) bool {
+	pointer, ok := expression.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	selector, ok := pointer.X.(*ast.SelectorExpr)
+	if !ok || selector.Sel == nil || selector.Sel.Name != "Context" {
+		return false
+	}
+	packageName, ok := selector.X.(*ast.Ident)
+	return ok && packageName.Name == "gest"
+}
+
+func namedPointerType(expression ast.Expr) (string, bool) {
+	pointer, ok := expression.(*ast.StarExpr)
+	if !ok {
+		return "", false
+	}
+	switch typed := pointer.X.(type) {
+	case *ast.Ident:
+		return typed.Name, true
+	case *ast.SelectorExpr:
+		if typed.Sel != nil {
+			return typed.Sel.Name, true
+		}
+	}
+	return "", false
+}
+
+func isErrorType(expression ast.Expr) bool {
+	ident, ok := expression.(*ast.Ident)
+	return ok && ident.Name == "error"
+}
+
+func invalidHandlerSignatureDiagnostic(fileSet *token.FileSet, function *ast.FuncDecl) Diagnostic {
+	position := fileSet.Position(function.Pos())
+	return Diagnostic{
+		Severity: SeverityError,
+		Code:     DiagnosticInvalidHandlerSignature,
+		Message:  "invalid handler signature " + handlerSignatureString(function),
+		Hint:     "accepted signatures are func(ctx *gest.Context) error, func(ctx *gest.Context, req *Req) (*Res, error), and func(ctx *gest.Context, req *Req) error",
+		File:     position.Filename,
+		Line:     position.Line,
+		Column:   position.Column,
+		Target:   function.Name.Name,
+	}
+}
+
+func handlerSignatureString(function *ast.FuncDecl) string {
+	var params string
+	if function.Type.Params != nil {
+		params = exprListString(flattenFields(function.Type.Params.List))
+	}
+	results := exprListString(flattenResultFields(function.Type.Results))
+	if results == "" {
+		return "func(" + params + ")"
+	}
+	if strings.Contains(results, ", ") {
+		results = "(" + results + ")"
+	}
+	return "func(" + params + ") " + results
+}
+
+func exprListString(expressions []ast.Expr) string {
+	parts := make([]string, 0, len(expressions))
+	for _, expression := range expressions {
+		parts = append(parts, exprString(expression))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func exprString(expression ast.Expr) string {
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		return typed.Name
+	case *ast.StarExpr:
+		return "*" + exprString(typed.X)
+	case *ast.SelectorExpr:
+		return exprString(typed.X) + "." + typed.Sel.Name
+	default:
+		return fmt.Sprintf("%T", expression)
+	}
 }
 
 func isControllerDecorator(name string) bool {

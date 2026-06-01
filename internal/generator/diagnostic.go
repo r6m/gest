@@ -8,9 +8,10 @@ import (
 const (
 	SeverityError = "error"
 
-	DiagnosticUnknownDecorator       = "GEN_UNKNOWN_DECORATOR"
-	DiagnosticInvalidDecoratorSyntax = "GEN_INVALID_DECORATOR_SYNTAX"
-	DiagnosticInvalidTarget          = "GEN_INVALID_TARGET"
+	DiagnosticUnknownDecorator        = "GEN_UNKNOWN_DECORATOR"
+	DiagnosticInvalidDecoratorSyntax  = "GEN_INVALID_DECORATOR_SYNTAX"
+	DiagnosticInvalidTarget           = "GEN_INVALID_TARGET"
+	DiagnosticInvalidHandlerSignature = "HANDLER_INVALID_SIGNATURE"
 )
 
 // Diagnostic describes a generator problem with source location when available.
