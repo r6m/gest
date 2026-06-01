@@ -124,7 +124,7 @@ Goal: generate `GestController()` methods from simple comments.
 | ID | Status | Task | Description |
 | --- | --- | --- | --- |
 | P2.1 | Done | Add generator package scanner | Scan Go packages under the configured root and ignore generated files, vendor, `.git`, and `.gest`. |
-| P2.2 | Planned | Parse controller decorators | Support only `@Controller("path")` and optional `@Tag("name")` on types. |
+| P2.2 | Done | Parse controller decorators | Support only `@Controller("path")` and optional `@Tag("name")` on types. |
 | P2.3 | Planned | Parse route decorators | Support `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Status`, `@Summary`, and `@Description`. |
 | P2.4 | Planned | Validate handler signatures | Accept only initial runtime-supported signatures. Produce file/line diagnostics for invalid signatures. |
 | P2.5 | Planned | Generate metadata files | Emit deterministic `*_gest.gen.go` files with `GestController()` methods and route definitions. |
