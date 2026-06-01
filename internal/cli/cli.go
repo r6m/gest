@@ -21,28 +21,29 @@ type CLI struct {
 	GenerateService    Handler
 	WorkDir            string
 	Stdout             io.Writer
+	Stderr             io.Writer
 }
 
 // New creates a CLI with placeholder handlers for commands implemented in later phases.
 func New() *CLI {
 	command := &CLI{}
 	command.Generate = command.runGenerate
-	command.Build = unimplemented("build")
+	command.Build = command.runBuild
 	command.GenerateModule = unimplemented("g module")
 	command.GenerateController = unimplemented("g controller")
 	command.GenerateService = unimplemented("g service")
 	return command
 }
 
-func (c *CLI) withDefaults(stdout io.Writer) *CLI {
+func (c *CLI) withDefaults(stdout, stderr io.Writer) *CLI {
 	if c == nil {
-		return New().withDefaults(stdout)
+		return New().withDefaults(stdout, stderr)
 	}
 	if c.Generate == nil {
 		c.Generate = c.runGenerate
 	}
 	if c.Build == nil {
-		c.Build = unimplemented("build")
+		c.Build = c.runBuild
 	}
 	if c.GenerateModule == nil {
 		c.GenerateModule = unimplemented("g module")
@@ -59,12 +60,13 @@ func (c *CLI) withDefaults(stdout io.Writer) *CLI {
 		}
 	}
 	c.Stdout = stdout
+	c.Stderr = stderr
 	return c
 }
 
 // Run parses args, writes command output, and returns the process exit code.
 func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	c = c.withDefaults(stdout)
+	c = c.withDefaults(stdout, stderr)
 
 	if len(args) == 0 || isHelp(args[0]) {
 		if err := writeHelp(stdout); err != nil {
