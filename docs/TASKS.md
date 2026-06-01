@@ -100,7 +100,7 @@ Goal: run an app with hand-written controller metadata before writing the genera
 | P1.2 | Done | Implement provider API | Add `Provider`, `Provide`, `Controller`, `Value`, `Export`, `Name`, `As`, and `WithScope`. Implement only singleton scope first; reject or ignore unsupported scopes with clear errors. |
 | P1.3 | Done | Implement token model | Add `Token`, `TokenOf[T]`, and named tokens for advanced cases. Keep normal APIs constructor-oriented. |
 | P1.4 | Done | Implement DI container | Support constructor injection, singleton caching, value providers, imports/exports, missing dependency errors, and cycle detection. |
-| P1.5 | Planned | Implement app bootstrap | Add `App`, `New`, `Import`, route registration, provider initialization, and `Listen`. |
+| P1.5 | Done | Implement app bootstrap | Add `App`, `New`, `Import`, route registration, provider initialization, and `Listen`. |
 | P1.6 | Done | Implement controller definitions | Add `DescribedController`, `ControllerDefinition`, `RouteDefinition`, `RouteMetadata`, and route runtime config types. |
 | P1.7 | Done | Implement Chi adapter | Add the first-party Chi/net-http adapter with groups, route handling, middleware registration, and server startup. |
 | P1.8 | Done | Implement context | Add `Context` helpers for params, query, headers, bearer token, JSON, no-content, storage, native request/response escape hatches. |

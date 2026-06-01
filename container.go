@@ -58,6 +58,7 @@ func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
 	definition := mod.Definition()
 	module := &moduleContainer{
 		name:     definition.Name,
+		imports:  make([]*moduleContainer, 0, len(definition.Imports)),
 		own:      make(map[Token]*providerState),
 		visible:  make(map[Token]*providerState),
 		exported: make(map[Token]*providerState),
@@ -68,6 +69,7 @@ func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
 		if err != nil {
 			return nil, err
 		}
+		module.imports = append(module.imports, importedModule)
 		for token, provider := range importedModule.exported {
 			if err := module.addVisible(token, provider); err != nil {
 				return nil, err
@@ -95,6 +97,7 @@ func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
 
 type moduleContainer struct {
 	name     string
+	imports  []*moduleContainer
 	own      map[Token]*providerState
 	visible  map[Token]*providerState
 	exported map[Token]*providerState
