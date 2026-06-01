@@ -126,7 +126,19 @@ These rules are strict. Any implementation that violates them is out of scope un
    - A small example app must serve as the acceptance fixture for runtime, generator, binding, CLI, and docs.
    - Each phase must move that app closer to the target developer experience.
 
-9. Do not build workflow tools before the core is stable.
+9. Tests are mandatory.
+   - Every implementation task must add or update tests unless the task is documentation-only.
+   - Runtime behavior needs unit tests and, where useful, integration tests through Chi/net-http.
+   - Generator behavior needs fixture-based tests for valid output and failure diagnostics.
+   - CLI behavior needs command tests that verify exit codes, output, and config defaults.
+   - A task is not done until `go test ./...` passes, or the blocker is documented explicitly.
+
+10. Linting is mandatory.
+   - The repository must keep a `.golangci.yml` at the root.
+   - Implementations must pass `golangci-lint run ./...` before being marked done, unless the blocker is documented explicitly.
+   - Generated code must be gofmt/gofumpt-compatible and must not require blanket lint disables.
+
+11. Do not build workflow tools before the core is stable.
    - `gest dev` is deferred until `gest generate` and `gest build` are reliable.
    - File watching and process restart behavior must not hide generator or runtime defects.
 
