@@ -16,6 +16,7 @@ type Handler func(context.Context, []string) error
 type CLI struct {
 	Generate           Handler
 	Build              Handler
+	Dev                Handler
 	GenerateModule     Handler
 	GenerateController Handler
 	GenerateService    Handler
@@ -29,6 +30,7 @@ func New() *CLI {
 	command := &CLI{}
 	command.Generate = command.runGenerate
 	command.Build = command.runBuild
+	command.Dev = command.runDev
 	command.GenerateModule = command.runGenerateModule
 	command.GenerateController = command.runGenerateController
 	command.GenerateService = command.runGenerateService
@@ -44,6 +46,9 @@ func (c *CLI) withDefaults(stdout, stderr io.Writer) *CLI {
 	}
 	if c.Build == nil {
 		c.Build = c.runBuild
+	}
+	if c.Dev == nil {
+		c.Dev = c.runDev
 	}
 	if c.GenerateModule == nil {
 		c.GenerateModule = c.runGenerateModule
@@ -86,6 +91,8 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		err = runHandler(ctx, c.Generate, args[1:])
 	case "build":
 		err = runHandler(ctx, c.Build, args[1:])
+	case "dev":
+		err = runHandler(ctx, c.Dev, args[1:])
 	case "g":
 		err = c.runGenerateShortcut(ctx, args[1:])
 	default:
@@ -146,6 +153,7 @@ Usage:
 Commands:
   gest generate      generate Gest metadata
   gest build         generate and build the project
+  gest dev           watch, rebuild, and restart the app
   gest g module      scaffold a module
   gest g controller  scaffold a controller
   gest g service     scaffold a service

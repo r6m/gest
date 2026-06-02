@@ -30,6 +30,7 @@ func TestRootHelp(t *testing.T) {
 		"Usage:",
 		"gest generate",
 		"gest build",
+		"gest dev",
 		"gest g module",
 		"gest g controller",
 		"gest g service",
@@ -65,6 +66,7 @@ func TestCommandsRouteToHandlers(t *testing.T) {
 	}{
 		{name: "generate", args: []string{"generate"}, want: "generate"},
 		{name: "build", args: []string{"build"}, want: "build"},
+		{name: "dev", args: []string{"dev"}, want: "dev"},
 		{name: "g module", args: []string{"g", "module"}, want: "g module"},
 		{name: "g controller", args: []string{"g", "controller"}, want: "g controller"},
 		{name: "g service", args: []string{"g", "service"}, want: "g service"},
@@ -76,6 +78,7 @@ func TestCommandsRouteToHandlers(t *testing.T) {
 			command := &CLI{
 				Generate:           recordHandler(&called, "generate"),
 				Build:              recordHandler(&called, "build"),
+				Dev:                recordHandler(&called, "dev"),
 				GenerateModule:     recordHandler(&called, "g module"),
 				GenerateController: recordHandler(&called, "g controller"),
 				GenerateService:    recordHandler(&called, "g service"),

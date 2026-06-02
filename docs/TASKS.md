@@ -221,7 +221,7 @@ Goal: improve daily workflow once generation and build behavior are reliable.
 
 | ID | Status | Task | Description |
 | --- | --- | --- | --- |
-| P6.1 | Planned | Implement `gest dev` | Watch files, debounce changes, regenerate, rebuild, and restart. Keep the previous process alive on build failure. |
+| P6.1 | Done | Implement `gest dev` | Watch files, debounce changes, regenerate, rebuild, and restart. Keep the previous process alive on build failure. |
 | P6.2 | Done | Add boot logs | Print modules, providers, routes, OpenAPI path, listen address, and boot timing. Support production JSON logs later. |
 | P6.3 | Done | Add lifecycle hooks | Implement init/bootstrap/shutdown interfaces after the eager module model is stable. |
 | P6.4 | Done | Add `gesttest` | Provide testing helpers around standard Go `testing`, HTTP requests, response assertions, and provider overrides. |
