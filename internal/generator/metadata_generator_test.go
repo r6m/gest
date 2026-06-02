@@ -148,6 +148,51 @@ func (c *ReportController) GestController() gest.ControllerDefinition {
 	assertNoHiddenRegistry(t, files[0].Content)
 }
 
+func TestGenerateMetadataFilesEmitsOpenAPIHideMetadataAndDTOInference(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+import "github.com/r6m/gest"
+
+// @Controller("/internal")
+// @Hide()
+type InternalController struct{}
+
+// @Get("/")
+func (c *InternalController) Index(ctx *gest.Context) error { return nil }
+
+// @Controller("/users")
+type UserController struct{}
+
+type CreateUserRequest struct{}
+type CreateUserResponse struct{}
+
+// @Post("/")
+// @Status(201)
+func (c *UserController) Create(ctx *gest.Context, req *CreateUserRequest) (*CreateUserResponse, error) {
+	return nil, nil
+}
+
+// @Get("/secret")
+// @Hide()
+func (c *UserController) Secret(ctx *gest.Context) error { return nil }
+`,
+	})
+
+	files := generateFixtureMetadata(t, root)
+	if len(files) != 1 {
+		t.Fatalf("files length = %d, want 1", len(files))
+	}
+	content := string(files[0].Content)
+	assertContains(t, content, "Hidden: true,")
+	assertContains(t, content, "Request:  (*CreateUserRequest)(nil),")
+	assertContains(t, content, "Response: (*CreateUserResponse)(nil),")
+	assertContains(t, content, "Handler:  gest.HandleRequestResponse(c.Create, gest.Status(201)),")
+	assertContains(t, content, "Metadata: gest.RouteMetadata{\n\t\t\t\t\tHidden: true,")
+	assertNoHiddenRegistry(t, files[0].Content)
+}
+
 func TestGenerateMetadataFilesStableAcrossRepeatedGeneration(t *testing.T) {
 	root := newFixture(t, map[string]string{
 		"go.mod":          "module example.test/app\n\ngo 1.26.2\n",

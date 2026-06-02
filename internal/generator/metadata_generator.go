@@ -222,6 +222,9 @@ func writeControllerMetadata(buffer *bytes.Buffer, controller Controller) {
 		buffer.WriteString(strconv.Quote(controller.Tag))
 		buffer.WriteString(",\n")
 	}
+	if controller.Hidden {
+		buffer.WriteString("\t\tHidden: true,\n")
+	}
 	buffer.WriteString("\t\tRoutes: []gest.RouteDefinition{\n")
 	for _, route := range controller.Routes {
 		writeRouteMetadata(buffer, controller, route)
@@ -337,10 +340,13 @@ func appendGuardReferences(controllerGuards []GuardReference, routeGuards []Guar
 }
 
 func writeRouteDescriptionMetadata(buffer *bytes.Buffer, route Route) {
-	if route.Summary == "" && route.Description == "" {
+	if route.Summary == "" && route.Description == "" && !route.Hidden {
 		return
 	}
 	buffer.WriteString("\t\t\t\tMetadata: gest.RouteMetadata{\n")
+	if route.Hidden {
+		buffer.WriteString("\t\t\t\t\tHidden: true,\n")
+	}
 	if route.Summary != "" {
 		buffer.WriteString("\t\t\t\t\tSummary: ")
 		buffer.WriteString(strconv.Quote(route.Summary))

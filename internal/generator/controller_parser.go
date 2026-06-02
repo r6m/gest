@@ -17,6 +17,7 @@ type Controller struct {
 	TypeName string
 	BasePath string
 	Tag      string
+	Hidden   bool
 	File     string
 	Line     int
 	Column   int
@@ -34,6 +35,7 @@ type Route struct {
 	Statuses     []int
 	Summary      string
 	Description  string
+	Hidden       bool
 	Guards       []GuardReference
 	File         string
 	Line         int
@@ -191,6 +193,7 @@ func parseControllersFromAST(pkg Package, file string, fileSet *token.FileSet, p
 		imports := importAliases(parsed)
 		var controller *Controller
 		var tag string
+		hidden := false
 		guards := []GuardReference{}
 		for _, decorator := range decorators {
 			switch decorator.Name {
@@ -212,6 +215,7 @@ func parseControllersFromAST(pkg Package, file string, fileSet *token.FileSet, p
 					Line:     decorator.Line,
 					Column:   decorator.Column,
 					Tag:      tag,
+					Hidden:   hidden,
 					Guards:   guards,
 				}
 			case "Tag":
@@ -233,6 +237,24 @@ func parseControllersFromAST(pkg Package, file string, fileSet *token.FileSet, p
 					}
 				}
 				controller.Tag = parsedTag
+			case "Hide":
+				if !parseNoArguments(decorator.Raw) {
+					diagnostics = append(diagnostics, invalidSyntaxDiagnostic(
+						decorator,
+						"@Hide requires no arguments",
+						"use @Hide()",
+					))
+					continue
+				}
+				hidden = true
+				if controller == nil {
+					controller = &Controller{
+						Package:  pkg,
+						TypeName: typeName,
+						File:     file,
+					}
+				}
+				controller.Hidden = true
 			case "Use":
 				guard, ok := parseUseGuard(decorator, imports, &diagnostics)
 				if ok {
@@ -363,6 +385,17 @@ func parseRouteDecorators(handlerName string, decorators []decorator, imports ma
 				continue
 			}
 			route.Description = description
+			hasRoute = true
+		case decorator.Name == "Hide":
+			if !parseNoArguments(decorator.Raw) {
+				diagnostics = append(diagnostics, invalidSyntaxDiagnostic(
+					decorator,
+					"@Hide requires no arguments",
+					"use @Hide()",
+				))
+				continue
+			}
+			route.Hidden = true
 			hasRoute = true
 		case decorator.Name == "Use":
 			guard, ok := parseUseGuard(decorator, imports, &diagnostics)
@@ -505,6 +538,15 @@ func parseSingleSelectorArgument(raw string) (string, string, bool) {
 		return "", "", false
 	}
 	return parts[0], parts[1], true
+}
+
+func parseNoArguments(raw string) bool {
+	open := strings.Index(raw, "(")
+	close := strings.LastIndex(raw, ")")
+	if open == -1 || close != len(raw)-1 || close <= open {
+		return false
+	}
+	return strings.TrimSpace(raw[open+1:close]) == ""
 }
 
 func isIdentifier(value string) bool {
@@ -713,7 +755,7 @@ func exprString(expression ast.Expr) string {
 }
 
 func isControllerDecorator(name string) bool {
-	return name == "Controller" || name == "Tag" || name == "Use"
+	return name == "Controller" || name == "Tag" || name == "Hide" || name == "Use"
 }
 
 func isHTTPMethodDecorator(name string) bool {
@@ -727,7 +769,7 @@ func isHTTPMethodDecorator(name string) bool {
 
 func isRouteMetadataDecorator(name string) bool {
 	switch name {
-	case "Status", "Summary", "Description":
+	case "Status", "Summary", "Description", "Hide":
 		return true
 	default:
 		return false
@@ -790,7 +832,7 @@ func unknownDecoratorDiagnostic(decorator decorator) Diagnostic {
 		Severity: SeverityError,
 		Code:     DiagnosticUnknownDecorator,
 		Message:  "unknown decorator @" + decorator.Name,
-		Hint:     "supported MVP decorators are @Controller, @Tag, @Use, @Get, @Post, @Put, @Patch, @Delete, @Status, @Summary, and @Description",
+		Hint:     "supported MVP decorators are @Controller, @Tag, @Hide, @Use, @Get, @Post, @Put, @Patch, @Delete, @Status, @Summary, and @Description",
 		File:     decorator.File,
 		Line:     decorator.Line,
 		Column:   decorator.Column,
@@ -803,7 +845,7 @@ func unknownRouteDecoratorDiagnostic(decorator decorator) Diagnostic {
 		Severity: SeverityError,
 		Code:     DiagnosticUnknownDecorator,
 		Message:  "unknown or deferred route decorator @" + decorator.Name,
-		Hint:     "supported MVP route decorators are @Use, @Get, @Post, @Put, @Patch, @Delete, @Status, @Summary, and @Description",
+		Hint:     "supported MVP route decorators are @Hide, @Use, @Get, @Post, @Put, @Patch, @Delete, @Status, @Summary, and @Description",
 		File:     decorator.File,
 		Line:     decorator.Line,
 		Column:   decorator.Column,

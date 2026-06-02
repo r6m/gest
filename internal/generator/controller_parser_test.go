@@ -73,6 +73,33 @@ type ReportController struct{}
 	}
 }
 
+func TestParseControllersHideDecorator(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+// @Controller("/users")
+// @Hide()
+type UserController struct{}
+`,
+	})
+	packages := scanFixturePackages(t, root)
+
+	controllers, diagnostics, err := ParseControllers(packages)
+	if err != nil {
+		t.Fatalf("ParseControllers returned error: %v", err)
+	}
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v, want none", diagnostics)
+	}
+	if len(controllers) != 1 {
+		t.Fatalf("controllers length = %d, want 1", len(controllers))
+	}
+	if !controllers[0].Hidden {
+		t.Fatal("Hidden = false, want true")
+	}
+}
+
 func TestParseControllersInvalidControllerPathSyntax(t *testing.T) {
 	root := newFixture(t, map[string]string{
 		"go.mod": "module example.test/app\n\ngo 1.26.2\n",

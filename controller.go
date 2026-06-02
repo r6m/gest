@@ -10,6 +10,7 @@ type ControllerDefinition struct {
 	Name        string
 	BasePath    string
 	Tag         string
+	Hidden      bool
 	Components  []RouteComponentFactory
 	Middlewares []MiddlewareFactory
 	Guards      []GuardFactory
@@ -35,6 +36,7 @@ type RouteDefinition struct {
 type RouteMetadata struct {
 	Summary     string
 	Description string
+	Hidden      bool
 	Auth        bool
 	Public      bool
 	Roles       []string

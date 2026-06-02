@@ -280,7 +280,9 @@ func (a *App) registerController(controller controllerRegistration, appContainer
 		if err != nil {
 			return err
 		}
-		a.routes = append(a.routes, newOpenAPIRoute(definition, route, fullPath))
+		if !definition.Hidden && !route.Metadata.Hidden {
+			a.routes = append(a.routes, newOpenAPIRoute(definition, route, fullPath))
+		}
 		a.router.Handle(RouteRuntimeConfig{
 			Method:     route.Method,
 			Path:       fullPath,

@@ -150,6 +150,62 @@ func (c *typedRouteController) GestController() ControllerDefinition {
 	}
 }
 
+type hiddenOpenAPIController struct{}
+
+func newHiddenOpenAPIController() *hiddenOpenAPIController {
+	return &hiddenOpenAPIController{}
+}
+
+func (c *hiddenOpenAPIController) GestController() ControllerDefinition {
+	return ControllerDefinition{
+		Name:     "HiddenOpenAPIController",
+		BasePath: "/hidden-controller",
+		Hidden:   true,
+		Routes: []RouteDefinition{
+			{
+				Name:   "Index",
+				Method: http.MethodGet,
+				Path:   "/",
+				Handler: HandleContext(func(ctx *Context) error {
+					return ctx.NoContent(http.StatusNoContent)
+				}),
+			},
+		},
+	}
+}
+
+type routeHiddenOpenAPIController struct{}
+
+func newRouteHiddenOpenAPIController() *routeHiddenOpenAPIController {
+	return &routeHiddenOpenAPIController{}
+}
+
+func (c *routeHiddenOpenAPIController) GestController() ControllerDefinition {
+	return ControllerDefinition{
+		Name:     "RouteHiddenOpenAPIController",
+		BasePath: "/route-hidden",
+		Routes: []RouteDefinition{
+			{
+				Name:   "Visible",
+				Method: http.MethodGet,
+				Path:   "/visible",
+				Handler: HandleContext(func(ctx *Context) error {
+					return ctx.NoContent(http.StatusNoContent)
+				}),
+			},
+			{
+				Name:   "Hidden",
+				Method: http.MethodGet,
+				Path:   "/hidden",
+				Handler: HandleContext(func(ctx *Context) error {
+					return ctx.NoContent(http.StatusNoContent)
+				}),
+				Metadata: RouteMetadata{Hidden: true},
+			},
+		},
+	}
+}
+
 func TestAppServesRouteFromHandWrittenMetadata(t *testing.T) {
 	app := New()
 	app.Import(NewModule(ModuleConfig{
@@ -583,6 +639,57 @@ func TestAppOpenAPIDocumentIncludesRequestParametersAndBody(t *testing.T) {
 	}
 	if properties["id"] != nil || properties["page"] != nil || properties["trace"] != nil {
 		t.Fatalf("request body included non-json fields: %#v", properties)
+	}
+}
+
+func TestAppOpenAPIDocumentExcludesHiddenControllerRoutes(t *testing.T) {
+	app := New()
+	app.OpenAPI("")
+	app.Import(NewModule(ModuleConfig{
+		Name:      "HiddenModule",
+		Providers: Providers(Controller(newHiddenOpenAPIController)),
+	}))
+
+	if err := app.bootstrap(); err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	document := decodeOpenAPIDocument(t, serveOpenAPI(t, app, "/openapi.json"))
+	paths := documentObject(t, document, "paths")
+	if paths["/hidden-controller/"] != nil {
+		t.Fatalf("paths included hidden controller route: %#v", paths)
+	}
+
+	router, ok := app.router.(*defaultRouter)
+	if !ok {
+		t.Fatalf("router = %T, want *defaultRouter", app.router)
+	}
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/hidden-controller/", nil))
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("hidden controller route status = %d, want 204", recorder.Code)
+	}
+}
+
+func TestAppOpenAPIDocumentExcludesHiddenRouteOnly(t *testing.T) {
+	app := New()
+	app.OpenAPI("")
+	app.Import(NewModule(ModuleConfig{
+		Name:      "RouteHiddenModule",
+		Providers: Providers(Controller(newRouteHiddenOpenAPIController)),
+	}))
+
+	if err := app.bootstrap(); err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	document := decodeOpenAPIDocument(t, serveOpenAPI(t, app, "/openapi.json"))
+	paths := documentObject(t, document, "paths")
+	if paths["/route-hidden/hidden"] != nil {
+		t.Fatalf("paths included hidden route: %#v", paths)
+	}
+	if paths["/route-hidden/visible"] == nil {
+		t.Fatalf("paths missing visible route: %#v", paths)
 	}
 }
 

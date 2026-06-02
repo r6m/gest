@@ -94,6 +94,34 @@ func (c *UserController) Find(ctx *gest.Context) error { return nil }
 	}
 }
 
+func TestParseControllerRoutesHideDecorator(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+// @Controller("/users")
+type UserController struct{}
+
+// @Get("/:id")
+// @Hide()
+func (c *UserController) Find(ctx *gest.Context) error { return nil }
+`,
+	})
+	packages := scanFixturePackages(t, root)
+
+	controllers, diagnostics, err := ParseControllerRoutes(packages)
+	if err != nil {
+		t.Fatalf("ParseControllerRoutes returned error: %v", err)
+	}
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v, want none", diagnostics)
+	}
+	route := controllers[0].Routes[0]
+	if !route.Hidden {
+		t.Fatal("Hidden = false, want true")
+	}
+}
+
 func TestParseControllerRoutesRouteLevelUseGuard(t *testing.T) {
 	root := newFixture(t, map[string]string{
 		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
