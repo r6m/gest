@@ -1338,7 +1338,7 @@ func websocketRouteDecoratorDiagnostic(decorator decorator) Diagnostic {
 		Severity: SeverityError,
 		Code:     DiagnosticUnknownDecorator,
 		Message:  "@WebSocket is not a core HTTP route decorator",
-		Hint:     "WebSocket gateways are deferred to Phase 11 and will use @Gateway on gateway types and @Subscribe on gateway methods, not @WebSocket routes",
+		Hint:     "WebSocket gateways use @Gateway on gateway types and @Subscribe on gateway methods, not @WebSocket routes",
 		File:     decorator.File,
 		Line:     decorator.Line,
 		Column:   decorator.Column,

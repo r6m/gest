@@ -109,13 +109,6 @@ func TestCoreRuntimeDoesNotImportEcosystemModules(t *testing.T) {
 			}
 		}
 	}
-
-	websocketModule := filepath.Join(root, "modules", "websocket")
-	if _, err := os.Stat(websocketModule); err == nil {
-		t.Fatalf("modules/websocket exists before the WebSocket module phase")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("stat %s: %v", websocketModule, err)
-	}
 }
 
 func assertMissingProvider[T any](t *testing.T, module gest.Module) {
