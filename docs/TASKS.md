@@ -15,6 +15,7 @@ Status legend:
 - No Fiber adapter in the core roadmap.
 - No built-in database module. Users bring their own database packages and expose them through normal Gest modules/providers.
 - No Uber Fx in the user-facing API. A simple internal DI container comes first.
+- Module imports compose provider sets directly; there is no `gest.Export()`, `gest.Private()`, or module-private provider visibility model.
 - Lazy modules, dev server, OpenAPI, WebSockets, queues, scheduler, tracing, metrics, and other ecosystem modules are deferred until the core framework is proven.
 - Build every phase around a working vertical slice, tests, and clear errors.
 - Every non-documentation implementation task must include tests and pass lint before it is marked `Done`.
@@ -97,15 +98,15 @@ Goal: run an app with hand-written controller metadata before writing the genera
 | ID | Status | Task | Description |
 | --- | --- | --- | --- |
 | P1.1 | Done | Implement module API | Add `Module`, `ModuleConfig`, `NewModule`, `Imports`, and `Providers`. Support `Name`, `Global`, `Imports`, `Providers`, and basic boot hooks only if needed. Defer `Lazy`. |
-| P1.2 | Done | Implement provider API | Add `Provider`, `Provide`, `Controller`, `Value`, `Export`, `Name`, `As`, and `WithScope`. Implement only singleton scope first; reject or ignore unsupported scopes with clear errors. |
+| P1.2 | Done | Implement provider API | Add `Provider`, `Provide`, `Controller`, `Value`, `Name`, `As`, and `WithScope`. Implement only singleton scope first; reject or ignore unsupported scopes with clear errors. |
 | P1.3 | Done | Implement token model | Add `Token`, `TokenOf[T]`, and named tokens for advanced cases. Keep normal APIs constructor-oriented. |
-| P1.4 | Done | Implement DI container | Support constructor injection, singleton caching, value providers, imports/exports, missing dependency errors, and cycle detection. |
+| P1.4 | Done | Implement DI container | Support constructor injection, singleton caching, value providers, imported provider sets, missing dependency errors, and cycle detection. |
 | P1.5 | Done | Implement app bootstrap | Add `App`, `New`, `Import`, route registration, provider initialization, and `Listen`. |
 | P1.6 | Done | Implement controller definitions | Add `DescribedController`, `ControllerDefinition`, `RouteDefinition`, `RouteMetadata`, and route runtime config types. |
 | P1.7 | Done | Implement Chi adapter | Add the first-party Chi/net-http adapter with groups, route handling, middleware registration, and server startup. |
 | P1.8 | Done | Implement context | Add `Context` helpers for params, query, headers, bearer token, JSON, no-content, storage, native request/response escape hatches. |
 | P1.9 | Done | Implement framework errors | Add `BadRequest`, `NotFound`, `Unauthorized`, `Forbidden`, `Internal`, and HTTP response mapping. |
-| P1.10 | Done | Add runtime tests | Cover module graph, DI resolution, exports/imports, route registration, context helpers, and error responses. |
+| P1.10 | Done | Add runtime tests | Cover module graph, DI resolution, imported providers, route registration, context helpers, and error responses. |
 
 Exit criteria:
 
@@ -182,6 +183,8 @@ Goal: provide the minimum CLI needed for generation and production builds.
 | P4.4 | Done | Implement `gest build` | Run generate, validate, optional tests, then `go build`. Keep the underlying Go command visible. |
 | P4.5 | Done | Implement basic generators | Add `gest g module`, `gest g controller`, and `gest g service`. Prefer AST edits for parent module updates. |
 | P4.6 | Done | Add CLI tests | Cover command parsing, config defaults, dry-run generation, and failure output. |
+| P4.7 | Planned | Remove provider export API | Remove `gest.Export()`, `Provider.Exported`, exported-provider checks, unexported-provider errors, and generator/template usage. Imported modules should make all providers available. |
+| P4.8 | Planned | Add `gest new` | Generate a minimal buildable Gest web app with module, service/controller, DTOs, `gest.yaml`, generated metadata, tests, and build/generate workflow. |
 
 Deferred:
 
@@ -190,6 +193,8 @@ Deferred:
 Exit criteria:
 
 - A generated small app can run `gest generate` and `gest build`.
+- `gest new <name>` creates a minimal app that can run `gest generate`, `go test ./...`, and `gest build`.
+- Generated apps and generators do not emit `gest.Export()`.
 - CLI output is concise and diagnostics are copy-paste useful.
 - `gest build` prints or clearly reports the underlying `go build` command it runs.
 - CLI packages do not leak into runtime imports.

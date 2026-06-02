@@ -49,7 +49,7 @@ func Module(options Options) gest.Module {
 		),
 
 		Providers: gest.Providers(
-			gest.Provide(NewReportService, gest.Export()),
+			gest.Provide(NewReportService),
 			gest.Provide(NewPDFRenderer),
 			gest.Controller(NewReportController),
 		),
@@ -303,7 +303,7 @@ func Module(options Options) gest.Module {
 		),
 
 		Providers: gest.Providers(
-			gest.Provide(NewReportService, gest.Export()),
+			gest.Provide(NewReportService),
 			gest.Provide(NewPDFRenderer),
 			gest.Controller(NewReportController),
 		),
@@ -353,16 +353,10 @@ Providers should be simple and pleasant.
 Preferred:
 
 ```go
-gest.Provide(NewAuthService, gest.Export())
+gest.Provide(NewAuthService)
 ```
 
-Avoid making users write this in normal cases:
-
-```go
-Exports: []gest.Token{
-	gest.TokenOf[*AuthService](),
-}
-```
+When a module imports another module, providers from the imported module are available to the importing module. There is no Nest-style `exports` list, no `gest.Export()`, and no module-private provider concept in v0.
 
 Tokens can exist internally and for advanced usage, but the common API should use provider options.
 
@@ -396,7 +390,6 @@ type Provider struct {
 	Constructor any
 	Value       any
 
-	Exported bool
 	Scope    Scope
 
 	Name    string
@@ -437,12 +430,6 @@ func Value(value any, options ...ProviderOption) Provider {
 	}
 
 	return p
-}
-
-func Export() ProviderOption {
-	return func(p *Provider) {
-		p.Exported = true
-	}
 }
 
 func Name(name string) ProviderOption {
@@ -1097,9 +1084,9 @@ func Module(options Options) gest.Module {
 		Providers: gest.Providers(
 			gest.Value(options),
 
-			gest.Provide(NewAuthService, gest.Export()),
-			gest.Provide(NewJWTGuard, gest.Export()),
-			gest.Provide(NewRolesGuard, gest.Export()),
+			gest.Provide(NewAuthService),
+			gest.Provide(NewJWTGuard),
+			gest.Provide(NewRolesGuard),
 
 			gest.Controller(NewAuthController),
 		),
@@ -1156,8 +1143,8 @@ func Module(options Options) gest.Module {
 
 		Providers: gest.Providers(
 			gest.Value(options),
-			gest.Provide(NewService, gest.Export()),
-			gest.Provide(NewGuard, gest.Export()),
+			gest.Provide(NewService),
+			gest.Provide(NewGuard),
 		),
 	})
 }
@@ -1283,7 +1270,7 @@ Boot:
 1. Load root modules
 2. Build module graph
 3. Detect cycles
-4. Resolve imports and exports
+4. Resolve imported provider sets
 5. Register eager providers
 6. Initialize eager modules
 7. Call OnModuleInit
@@ -1342,9 +1329,9 @@ func Named(name string) Token
 But normal users should use:
 
 ```go
-gest.Provide(NewUserService, gest.Export())
+gest.Provide(NewUserService)
 gest.Provide(NewRedisCache, gest.Name("cache.redis"))
-gest.Provide(NewJWTGuard, gest.As[gest.Guard](), gest.Export())
+gest.Provide(NewJWTGuard, gest.As[gest.Guard]())
 ```
 
 ---
@@ -2029,7 +2016,7 @@ GEST  starting application
 
 BOOT  module          config      eager   providers=1
 BOOT  module          logger      eager   providers=1
-BOOT  module          auth        eager   providers=5 controllers=1 exports=3
+BOOT  module          auth        eager   providers=5 controllers=1
 BOOT  module          reports     lazy    providers=3 controllers=1
 
 ROUTE GET             /auth/login
@@ -2132,7 +2119,6 @@ duplicate routes
 missing generated controller metadata
 provider cycles
 missing providers
-unexported providers used across modules
 ambiguous decorator imports
 invalid module imports
 lazy module route conflicts
@@ -2150,7 +2136,7 @@ missing: *reports.ReportRepository
 
 hint:
   add gest.Provide(NewReportRepository)
-  or import the user-owned module that exports *reports.ReportRepository
+  or import the user-owned module that provides *reports.ReportRepository
 ```
 
 Good errors are a product feature.
@@ -2298,7 +2284,7 @@ func Module(options Options) gest.Module {
 		),
 
 		Providers: gest.Providers(
-			gest.Provide(NewTeamService, gest.Export()),
+			gest.Provide(NewTeamService),
 			gest.Controller(NewTeamController),
 		),
 	})

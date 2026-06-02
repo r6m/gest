@@ -146,7 +146,7 @@ The DI container must support:
 - value providers
 - controller providers
 - singleton caching
-- imports and exports
+- module imports as provider-set composition
 - missing provider errors
 - provider cycle errors
 
@@ -154,8 +154,13 @@ The DI container must not introduce:
 
 - request scope
 - transient scope
+- provider export/private visibility controls
 - global service locator patterns
 - required container lookups in normal user code
+
+Module imports are the only module-level provider boundary. If module A imports module B, providers from module B are available to module A's providers and controllers. There is no `gest.Export()`, no `gest.Private()`, and no Nest-style provider export list in the v0 model.
+
+Go package visibility remains the privacy mechanism. If another package cannot name a provider type or constructor, it cannot directly request that dependency in normal Go code.
 
 `Resolve` may exist for internals, testing, and advanced escape hatches. It must not be the primary user-facing dependency pattern.
 

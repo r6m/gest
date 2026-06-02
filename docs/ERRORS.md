@@ -23,7 +23,7 @@ Runtime and bootstrap failures use a structured framework error with these logic
 | `message` | Yes | Short human-readable explanation of what failed. |
 | `hint` | No | Actionable remediation when the fix is obvious. |
 | `module` | When available | Module name involved in the failure. |
-| `provider` | When available | Provider token, constructor, or exported name involved in the failure. |
+| `provider` | When available | Provider token, constructor, or provider name involved in the failure. |
 | `controller` | When available | Controller type or metadata name involved in the failure. |
 | `route` | When available | Route method and path, formatted consistently as `METHOD /path`. |
 | `field` | When available | Request binding field, parameter, query key, header key, or body path. |
@@ -34,7 +34,7 @@ The public API may expose this as a Go struct, interface, or concrete error type
 `Error()` should produce concise text in this shape:
 
 ```text
-DI_MISSING_PROVIDER: missing provider for token UserService in module ReportsModule. Hint: add a provider or import a module that exports UserService.
+DI_MISSING_PROVIDER: missing provider for token UserService in module ReportsModule. Hint: add a provider or import a module that provides UserService.
 ```
 
 ## HTTP Runtime Errors
@@ -72,10 +72,9 @@ DI errors occur while building or resolving the application graph. They must nev
 
 | Code | Kind | Required Context | Message Contract |
 | --- | --- | --- | --- |
-| `DI_MISSING_PROVIDER` | `Internal` during bootstrap, `BadRequest` only if exposed through an explicit runtime lookup | `module`, `provider` | State the missing token/provider and where it was requested. Hint to add a provider or import a module that exports it. |
+| `DI_MISSING_PROVIDER` | `Internal` during bootstrap, `BadRequest` only if exposed through an explicit runtime lookup | `module`, `provider` | State the missing token/provider and where it was requested. Hint to add a provider or import a module that provides it. |
 | `DI_PROVIDER_CYCLE` | `Internal` | `module`, provider path | Include the full cycle path in order. Hint to split responsibilities or inject an interface/value that breaks the cycle. |
 | `DI_DUPLICATE_PROVIDER` | `Conflict` | `module`, `provider` | Name the duplicate provider token and module. Hint to remove one provider or use a distinct token/name. |
-| `DI_UNEXPORTED_PROVIDER` | `Internal` | importing `module`, exporting module, `provider` | Explain that the provider exists in another module but is not exported. Hint to export it or provide it locally. |
 | `DI_UNSUPPORTED_SCOPE` | `BadRequest` | `module`, `provider` | Name the unsupported scope. Hint that the MVP supports singleton scope only. |
 
 ## Module Errors
@@ -86,7 +85,6 @@ Module errors occur while validating the module graph.
 | --- | --- | --- | --- |
 | `MODULE_DUPLICATE` | `Conflict` | `module` | Name the duplicated module. Hint to import it once or use a distinct module name. |
 | `MODULE_INVALID_IMPORT` | `BadRequest` | importing `module` and invalid import | Explain why the import is invalid, nil, cyclic at the module layer, or not a module. |
-| `MODULE_EXPORT_NOT_FOUND` | `Internal` | `module`, export token/name | Name the missing export. Hint to add it to the module providers before exporting it. |
 
 ## Route Errors
 

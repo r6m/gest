@@ -83,7 +83,7 @@ V0 supports singleton constructor injection only.
 
 Rationale:
 
-- Singleton DI is enough to prove module imports, exports, providers, and controllers.
+- Singleton DI is enough to prove module imports, provider-set composition, providers, and controllers.
 - Request/transient scopes require more lifecycle, concurrency, and context design.
 - A conservative container reduces early framework magic.
 
@@ -92,6 +92,29 @@ Consequences:
 - `Request` and `Transient` scopes are deferred.
 - If scope options exist in the API sketch, implementations must reject unsupported scopes clearly.
 - User examples should use constructors, not container lookups.
+
+## ADR-0008: Module Imports Expose Provider Sets
+
+Status: Accepted
+
+Gest does not use Nest-style provider exports.
+
+If module A imports module B, module A can inject providers from module B. There is no `gest.Export()`, no `gest.Private()`, and no module-private provider visibility model in v0.
+
+Rationale:
+
+- Go already has package visibility.
+- Requiring `Export()` duplicates Go's exported identifier model and adds ceremony.
+- Imported modules should compose provider sets directly.
+- The model maps more naturally to possible future Fx-style composition.
+
+Consequences:
+
+- Remove `gest.Export()` from public examples, generators, official modules, and runtime API.
+- Remove `Provider.Exported`.
+- Remove unexported-provider errors and tests.
+- Missing-provider hints should say to add a provider or import a module that provides it.
+- CLI generators must not emit `gest.Export()`.
 
 ## ADR-0006: Tests And Lint Are Required
 
