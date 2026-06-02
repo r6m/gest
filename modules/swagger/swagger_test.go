@@ -1,6 +1,7 @@
 package swagger_test
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -88,6 +89,19 @@ func TestSwaggerModuleIsOptional(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
+	}
+}
+
+func TestSwaggerModuleRoutesAppearInBootLogsWhenRegistered(t *testing.T) {
+	var output bytes.Buffer
+	router := newTestRouter()
+	app := gest.New(gest.WithRouter(router), gest.WithBootLogs(true), gest.WithBootLogWriter(&output))
+	app.Import(swagger.Module(swagger.Options{}))
+	bootstrap(t, app)
+
+	logs := output.String()
+	if !strings.Contains(logs, "GEST route: GET /docs -> SwaggerController.Index\n") {
+		t.Fatalf("boot logs = %q, want Swagger docs route", logs)
 	}
 }
 

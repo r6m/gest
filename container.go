@@ -59,6 +59,7 @@ func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
 	module := &moduleContainer{
 		name:     definition.Name,
 		imports:  make([]*moduleContainer, 0, len(definition.Imports)),
+		ownOrder: make([]*providerState, 0, len(definition.Providers)),
 		own:      make(map[Token]*providerState),
 		visible:  make(map[Token]*providerState),
 		exported: make(map[Token]*providerState),
@@ -82,6 +83,7 @@ func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
 		if err != nil {
 			return nil, err
 		}
+		module.ownOrder = append(module.ownOrder, state)
 		for _, token := range providerTokens(provider, state.resultType) {
 			if err := module.addOwn(token, state); err != nil {
 				return nil, err
@@ -98,6 +100,7 @@ func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
 type moduleContainer struct {
 	name     string
 	imports  []*moduleContainer
+	ownOrder []*providerState
 	own      map[Token]*providerState
 	visible  map[Token]*providerState
 	exported map[Token]*providerState

@@ -1,9 +1,13 @@
 package gest
 
 import (
+	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -13,13 +17,14 @@ type Option func(*App)
 
 // App wires modules, DI, controllers, and a router adapter.
 type App struct {
-	router    RouterAdapter
-	modules   []Module
-	validator Validator
-	routes    []OpenAPIRoute
-	openapi   *openAPIConfig
-	bootLogs  bool
-	built     bool
+	router        RouterAdapter
+	modules       []Module
+	validator     Validator
+	routes        []OpenAPIRoute
+	openapi       *openAPIConfig
+	bootLogs      bool
+	bootLogWriter io.Writer
+	built         bool
 }
 
 // New creates an application with default options.
@@ -42,11 +47,23 @@ func WithRouter(adapter RouterAdapter) Option {
 	}
 }
 
-// WithBootLogs stores the boot log setting. Boot logging is not implemented yet.
+// WithBootLogs enables or disables human-readable boot logs.
 func WithBootLogs(enabled bool) Option {
 	return func(app *App) {
 		app.bootLogs = enabled
 	}
+}
+
+// WithBootLogWriter configures the writer used for boot logs.
+func WithBootLogWriter(writer io.Writer) Option {
+	return func(app *App) {
+		app.bootLogWriter = writer
+	}
+}
+
+// WithLogger configures the writer used for boot logs.
+func WithLogger(writer io.Writer) Option {
+	return WithBootLogWriter(writer)
 }
 
 // WithValidator configures the validator used by typed JSON handlers.
@@ -77,6 +94,7 @@ func (a *App) Listen(addr string) error {
 	if err := a.bootstrap(); err != nil {
 		return err
 	}
+	a.logBoot("GEST listen address: %s", addr)
 	return a.router.Serve(addr)
 }
 
@@ -84,6 +102,9 @@ func (a *App) bootstrap() error {
 	if a.built {
 		return nil
 	}
+
+	start := time.Now()
+	a.logBoot("GEST starting application")
 
 	root := NewModule(ModuleConfig{
 		Name:    "App",
@@ -98,7 +119,8 @@ func (a *App) bootstrap() error {
 	seenRoutes := make(map[string]struct{})
 	seenProviders := make(map[*providerState]struct{})
 	for _, module := range allModuleContainers(rootContainer) {
-		for _, provider := range module.own {
+		a.logModuleBoot(module)
+		for _, provider := range module.ownOrder {
 			if provider.provider.Kind != ProviderKindController {
 				continue
 			}
@@ -116,6 +138,7 @@ func (a *App) bootstrap() error {
 	}
 
 	a.built = true
+	a.logBoot("GEST boot duration: %s", time.Since(start).Round(time.Millisecond))
 	return nil
 }
 
@@ -142,6 +165,7 @@ func (a *App) registerOpenAPI(seenRoutes map[string]struct{}) error {
 		},
 		Validator: a.validator,
 	})
+	a.logBoot("GEST OpenAPI route: GET %s", fullPath)
 	return nil
 }
 
@@ -171,9 +195,35 @@ func (a *App) registerController(provider *providerState, seenRoutes map[string]
 			Handler:   route.Handler,
 			Validator: a.validator,
 		})
+		a.logBoot("GEST route: %s %s -> %s.%s", strings.ToUpper(route.Method), fullPath, definition.Name, route.Name)
 	}
 
 	return nil
+}
+
+func (a *App) logModuleBoot(module *moduleContainer) {
+	providers := 0
+	controllers := 0
+	for _, provider := range module.ownOrder {
+		switch provider.provider.Kind {
+		case ProviderKindController:
+			controllers++
+		default:
+			providers++
+		}
+	}
+	a.logBoot("GEST module: %s eager providers=%d controllers=%d", module.name, providers, controllers)
+}
+
+func (a *App) logBoot(format string, args ...any) {
+	if !a.bootLogs {
+		return
+	}
+	writer := a.bootLogWriter
+	if writer == nil {
+		writer = os.Stdout
+	}
+	_, _ = fmt.Fprintf(writer, format+"\n", args...)
 }
 
 func allModuleContainers(root *moduleContainer) []*moduleContainer {

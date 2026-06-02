@@ -1,6 +1,7 @@
 package gest
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -702,7 +703,7 @@ func TestAppMissingProviderReturnsUsefulError(t *testing.T) {
 
 func TestAppCustomAdapterCanBeInjected(t *testing.T) {
 	fake := newFakeRouter()
-	app := New(WithRouter(fake), WithBootLogs(true))
+	app := New(WithRouter(fake), WithBootLogs(true), WithBootLogWriter(discardWriter{}))
 	app.Import(NewModule(ModuleConfig{
 		Name:      "AppModule",
 		Providers: Providers(Controller(newDuplicateControllerA)),
@@ -721,6 +722,79 @@ func TestAppCustomAdapterCanBeInjected(t *testing.T) {
 	if len(fake.routes) != 1 {
 		t.Fatalf("registered routes = %d, want 1", len(fake.routes))
 	}
+}
+
+func TestAppBootLogsDisabledByDefault(t *testing.T) {
+	var output bytes.Buffer
+	app := New(WithRouter(newFakeRouter()), WithBootLogWriter(&output))
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(
+			Provide(newAppService),
+			Controller(newAppController),
+		),
+	}))
+
+	if err := app.bootstrap(); err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+	if output.String() != "" {
+		t.Fatalf("boot logs = %q, want empty output", output.String())
+	}
+}
+
+func TestAppBootLogsIncludeModulesProvidersControllersAndRoutes(t *testing.T) {
+	var output bytes.Buffer
+	app := New(WithRouter(newFakeRouter()), WithBootLogs(true), WithBootLogWriter(&output))
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(
+			Provide(newAppService),
+			Controller(newAppController),
+		),
+	}))
+
+	if err := app.bootstrap(); err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	logs := output.String()
+	assertContains(t, logs, "GEST starting application\n")
+	assertContains(t, logs, "GEST module: App eager providers=0 controllers=0\n")
+	assertContains(t, logs, "GEST module: AppModule eager providers=1 controllers=1\n")
+	assertContains(t, logs, "GEST route: GET /api/hello -> AppController.Hello\n")
+	assertContains(t, logs, "GEST boot duration: ")
+}
+
+func TestAppBootLogsIncludeOpenAPIWhenConfigured(t *testing.T) {
+	var output bytes.Buffer
+	app := New(WithRouter(newFakeRouter()), WithBootLogs(true), WithBootLogWriter(&output))
+	app.OpenAPI("/docs/openapi.json")
+	app.Import(NewModule(ModuleConfig{
+		Name:      "TypedModule",
+		Providers: Providers(Controller(newTypedRouteController)),
+	}))
+
+	if err := app.bootstrap(); err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	assertContains(t, output.String(), "GEST OpenAPI route: GET /docs/openapi.json\n")
+}
+
+func TestAppBootLogsCustomWriterReceivesListenAddress(t *testing.T) {
+	var output bytes.Buffer
+	app := New(WithRouter(newFakeRouter()), WithBootLogs(true), WithLogger(&output))
+	app.Import(NewModule(ModuleConfig{
+		Name:      "AppModule",
+		Providers: Providers(Controller(newDuplicateControllerA)),
+	}))
+
+	if err := app.Listen(":0"); err != nil {
+		t.Fatalf("Listen returned error: %v", err)
+	}
+
+	assertContains(t, output.String(), "GEST listen address: :0\n")
 }
 
 func TestAppInstallsValidatorOnRegisteredRoutes(t *testing.T) {
@@ -868,6 +942,13 @@ func emptyHandler(ctx *Context) error {
 	return ctx.NoContent(http.StatusNoContent)
 }
 
+func assertContains(t *testing.T, got string, want string) {
+	t.Helper()
+	if !strings.Contains(got, want) {
+		t.Fatalf("output = %q, want substring %q", got, want)
+	}
+}
+
 func serveOpenAPI(t *testing.T, app *App, path string) []byte {
 	t.Helper()
 
@@ -947,4 +1028,10 @@ func (r *fakeRouter) Use(Middleware) {}
 
 func (r *fakeRouter) Serve(string) error {
 	return nil
+}
+
+type discardWriter struct{}
+
+func (discardWriter) Write(p []byte) (int, error) {
+	return len(p), nil
 }
