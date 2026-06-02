@@ -28,6 +28,8 @@ func JSON(handler any, options ...HandlerOption) HandlerFunc {
 
 	return func(ctx *Context) error {
 		switch {
+		case isContextResponseErrorHandler(handlerType):
+			return callContextResponseErrorHandler(handlerValue, ctx, config)
 		case isContextErrorHandler(handlerType):
 			return callContextErrorHandler(handlerValue, ctx, config)
 		case isRequestErrorHandler(handlerType):
@@ -38,6 +40,15 @@ func JSON(handler any, options ...HandlerOption) HandlerFunc {
 			return Internal(fmt.Sprintf("unsupported JSON handler signature %s", handlerType))
 		}
 	}
+}
+
+func isContextResponseErrorHandler(handlerType reflect.Type) bool {
+	return handlerType.Kind() == reflect.Func &&
+		handlerType.NumIn() == 1 &&
+		handlerType.In(0) == contextPointerType &&
+		handlerType.NumOut() == 2 &&
+		isPointerType(handlerType.Out(0)) &&
+		handlerType.Out(1).Implements(errorType)
 }
 
 func isContextErrorHandler(handlerType reflect.Type) bool {
@@ -78,6 +89,20 @@ func callContextErrorHandler(handler reflect.Value, ctx *Context, config handler
 	}
 
 	return ctx.NoContent(config.emptyStatus)
+}
+
+func callContextResponseErrorHandler(handler reflect.Value, ctx *Context, config handlerConfig) error {
+	results := handler.Call([]reflect.Value{reflect.ValueOf(ctx)})
+	if err := errorValue(results[1]); err != nil {
+		return err
+	}
+
+	response := results[0]
+	if response.IsNil() {
+		return ctx.NoContent(config.emptyStatus)
+	}
+
+	return ctx.JSON(config.successStatus, response.Interface())
 }
 
 func callRequestErrorHandler(handler reflect.Value, ctx *Context, config handlerConfig) error {

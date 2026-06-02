@@ -682,6 +682,8 @@ Supported signatures:
 ```go
 func(ctx *gest.Context) error
 
+func(ctx *gest.Context) (*Res, error)
+
 func(ctx *gest.Context, req *Req) (*Res, error)
 
 func(ctx *gest.Context, req *Req) error
@@ -728,46 +730,11 @@ type FindUserResponse struct {
 
 ## Handler wrapper
 
-```go
-package gest
+`gest.JSON(...)` adapts supported typed handlers into `HandlerFunc`.
 
-type HandlerFunc func(ctx *Context) error
+For handlers with a request DTO, the wrapper binds params, query values, headers, and JSON body fields into `*Req`, then validates it before calling the controller method.
 
-type TypedHandlerFunc[Req any, Res any] func(
-	ctx *Context,
-	req *Req,
-) (*Res, error)
-
-func JSON[Req any, Res any](
-	handler TypedHandlerFunc[Req, Res],
-	options ...HandlerOption,
-) HandlerFunc {
-	cfg := newHandlerConfig(options...)
-
-	return func(ctx *Context) error {
-		var req Req
-
-		if err := ctx.BindRequest(&req); err != nil {
-			return BadRequest(err.Error())
-		}
-
-		if err := ctx.Validate(&req); err != nil {
-			return BadRequest(err.Error())
-		}
-
-		res, err := handler(ctx, &req)
-		if err != nil {
-			return err
-		}
-
-		if res == nil {
-			return ctx.NoContent(cfg.emptyStatus)
-		}
-
-		return ctx.JSON(cfg.successStatus, res)
-	}
-}
-```
+For handlers that return `(*Res, error)`, a non-nil response is written as JSON with the configured success status. A nil response writes no content with the configured empty status.
 
 ## Binding rules
 

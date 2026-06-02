@@ -549,7 +549,7 @@ func invalidHandlerSignatureDiagnostic(fileSet *token.FileSet, function *ast.Fun
 		Severity: SeverityError,
 		Code:     DiagnosticInvalidHandlerSignature,
 		Message:  "invalid handler signature " + handlerSignatureString(function),
-		Hint:     "accepted signatures are func(ctx *gest.Context) error, func(ctx *gest.Context, req *Req) (*Res, error), and func(ctx *gest.Context, req *Req) error",
+		Hint:     "accepted signatures are func(ctx *gest.Context) error, func(ctx *gest.Context) (*Res, error), func(ctx *gest.Context, req *Req) (*Res, error), and func(ctx *gest.Context, req *Req) error",
 		File:     position.Filename,
 		Line:     position.Line,
 		Column:   position.Column,

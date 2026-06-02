@@ -192,6 +192,9 @@ func assertInvalidSignature(t *testing.T, root string, file string, line int, ta
 	if !contains(diagnostics[0].Hint, "func(ctx *gest.Context) error") {
 		t.Fatalf("Hint = %q, want accepted signatures", diagnostics[0].Hint)
 	}
+	if !contains(diagnostics[0].Hint, "func(ctx *gest.Context) (*Res, error)") {
+		t.Fatalf("Hint = %q, want context response signature", diagnostics[0].Hint)
+	}
 }
 
 func signatureFixture(t *testing.T, methodSource string) string {
