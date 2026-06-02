@@ -28,7 +28,7 @@ func (c *CLI) runGenerateModule(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	modulePath, err := cleanModulePath(options.path)
+	modulePath, err := parseGeneratorPath(options.path)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (c *CLI) runGenerateComponent(ctx context.Context, args []string, kind comp
 	if err != nil {
 		return err
 	}
-	componentPath, err := cleanModulePath(options.path)
+	componentPath, err := parseGeneratorPath(options.path)
 	if err != nil {
 		return err
 	}
@@ -153,9 +153,9 @@ type moduleGenerateResult struct {
 	parentSkipped bool
 }
 
-func (c *CLI) generateComponent(componentPath string, kind componentKind, options componentOptions) (moduleGenerateResult, error) {
+func (c *CLI) generateComponent(componentPath generatorPath, kind componentKind, options componentOptions) (moduleGenerateResult, error) {
 	result := moduleGenerateResult{dryRun: options.dryRun, parentSkipped: !options.updateModule}
-	target := componentFilePath(c.WorkDir, componentPath, kind)
+	target := componentPath.componentFilePath(c.WorkDir, kind)
 	relativeTarget := slashRel(c.WorkDir, target)
 	content, err := componentFileContent(componentPath, kind)
 	if err != nil {
@@ -182,7 +182,7 @@ func (c *CLI) generateComponent(componentPath string, kind componentKind, option
 		return result, nil
 	}
 
-	module := moduleFilePath(c.WorkDir, componentPath)
+	module := componentPath.moduleFilePath(c.WorkDir)
 	if !fileExists(module) {
 		result.noParent = true
 		result.warnings = append(result.warnings, "module file not found")
@@ -207,9 +207,9 @@ func (c *CLI) generateComponent(componentPath string, kind componentKind, option
 	return result, nil
 }
 
-func (c *CLI) generateModule(modulePath string, options moduleOptions) (moduleGenerateResult, error) {
+func (c *CLI) generateModule(modulePath generatorPath, options moduleOptions) (moduleGenerateResult, error) {
 	result := moduleGenerateResult{dryRun: options.dryRun, parentSkipped: !options.updateParent}
-	target := moduleFilePath(c.WorkDir, modulePath)
+	target := modulePath.moduleFilePath(c.WorkDir)
 	relativeTarget := slashRel(c.WorkDir, target)
 	content, err := moduleFileContent(modulePath)
 	if err != nil {
@@ -236,7 +236,7 @@ func (c *CLI) generateModule(modulePath string, options moduleOptions) (moduleGe
 		return result, nil
 	}
 
-	parent := findParentModule(c.WorkDir, modulePath)
+	parent := modulePath.findParentModule(c.WorkDir)
 	if parent == "" {
 		result.noParent = true
 		result.warnings = append(result.warnings, "parent module not found")
@@ -261,18 +261,33 @@ func (c *CLI) generateModule(modulePath string, options moduleOptions) (moduleGe
 	return result, nil
 }
 
-func cleanModulePath(raw string) (string, error) {
+type generatorPath struct {
+	parts       []string
+	slash       string
+	packageName string
+	typePrefix  string
+	moduleName  string
+}
+
+func parseGeneratorPath(raw string) (generatorPath, error) {
 	raw = strings.Trim(raw, "/")
 	if raw == "" || strings.Contains(raw, "..") {
-		return "", fmt.Errorf("invalid module path %q", raw)
+		return generatorPath{}, fmt.Errorf("invalid module path %q", raw)
 	}
 	parts := strings.Split(raw, "/")
 	for _, part := range parts {
 		if !isIdentifier(part) {
-			return "", fmt.Errorf("invalid module path segment %q", part)
+			return generatorPath{}, fmt.Errorf("invalid module path segment %q", part)
 		}
 	}
-	return strings.Join(parts, "/"), nil
+	packageName := parts[len(parts)-1]
+	return generatorPath{
+		parts:       append([]string(nil), parts...),
+		slash:       strings.Join(parts, "/"),
+		packageName: packageName,
+		typePrefix:  exportedName(packageName),
+		moduleName:  strings.Join(parts, "."),
+	}, nil
 }
 
 func isIdentifier(value string) bool {
@@ -290,15 +305,11 @@ func isIdentifier(value string) bool {
 	return true
 }
 
-func moduleFilePath(workDir string, modulePath string) string {
-	parts := strings.Split(modulePath, "/")
-	return filepath.Join(workDir, "internal", filepath.Join(parts...), parts[len(parts)-1]+".module.go")
+func (p generatorPath) moduleFilePath(workDir string) string {
+	return filepath.Join(workDir, "internal", filepath.Join(p.parts...), p.packageName+".module.go")
 }
 
-func moduleFileContent(modulePath string) ([]byte, error) {
-	parts := strings.Split(modulePath, "/")
-	packageName := parts[len(parts)-1]
-	moduleName := strings.Join(parts, ".")
+func moduleFileContent(modulePath generatorPath) ([]byte, error) {
 	source := fmt.Sprintf(`package %s
 
 import "github.com/r6m/gest"
@@ -310,19 +321,15 @@ func Module(options Options) gest.Module {
 		Name: %q,
 	})
 }
-`, packageName, moduleName)
+`, modulePath.packageName, modulePath.moduleName)
 	return format.Source([]byte(source))
 }
 
-func componentFilePath(workDir string, componentPath string, kind componentKind) string {
-	parts := strings.Split(componentPath, "/")
-	return filepath.Join(workDir, "internal", filepath.Join(parts...), parts[len(parts)-1]+"."+string(kind)+".go")
+func (p generatorPath) componentFilePath(workDir string, kind componentKind) string {
+	return filepath.Join(workDir, "internal", filepath.Join(p.parts...), p.packageName+"."+string(kind)+".go")
 }
 
-func componentFileContent(componentPath string, kind componentKind) ([]byte, error) {
-	parts := strings.Split(componentPath, "/")
-	packageName := parts[len(parts)-1]
-	typePrefix := exportedName(packageName)
+func componentFileContent(componentPath generatorPath, kind componentKind) ([]byte, error) {
 	var source string
 	switch kind {
 	case componentController:
@@ -334,7 +341,7 @@ type %sController struct{}
 func New%sController() *%sController {
 	return &%sController{}
 }
-`, packageName, routePath(componentPath), typePrefix, typePrefix, typePrefix, typePrefix)
+`, componentPath.packageName, routePath(componentPath), componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix)
 	case componentService:
 		source = fmt.Sprintf(`package %s
 
@@ -343,7 +350,7 @@ type %sService struct{}
 func New%sService() *%sService {
 	return &%sService{}
 }
-`, packageName, typePrefix, typePrefix, typePrefix, typePrefix)
+`, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix)
 	default:
 		return nil, fmt.Errorf("unknown component kind %q", kind)
 	}
@@ -361,15 +368,13 @@ func exportedName(value string) string {
 	return strings.Join(parts, "")
 }
 
-func routePath(componentPath string) string {
-	parts := strings.Split(componentPath, "/")
-	return parts[len(parts)-1]
+func routePath(componentPath generatorPath) string {
+	return componentPath.packageName
 }
 
-func findParentModule(workDir string, modulePath string) string {
-	parts := strings.Split(modulePath, "/")
-	if len(parts) > 1 {
-		parentParts := parts[:len(parts)-1]
+func (p generatorPath) findParentModule(workDir string) string {
+	for depth := len(p.parts) - 1; depth > 0; depth-- {
+		parentParts := p.parts[:depth]
 		parent := filepath.Join(append([]string{workDir, "internal"}, parentParts...)...)
 		path := filepath.Join(parent, parentParts[len(parentParts)-1]+".module.go")
 		if fileExists(path) {
@@ -388,7 +393,7 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func updateParentModule(path string, workDir string, modulePath string) (bool, error) {
+func updateParentModule(path string, workDir string, modulePath generatorPath) (bool, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return false, err
@@ -435,7 +440,7 @@ func updateParentModule(path string, workDir string, modulePath string) (bool, e
 	return true, nil
 }
 
-func updateModuleProviders(path string, workDir string, componentPath string, kind componentKind) (bool, error) {
+func updateModuleProviders(path string, workDir string, componentPath generatorPath, kind componentKind) (bool, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return false, err
@@ -519,7 +524,7 @@ func importEdit(fileSet *token.FileSet, file *ast.File, importPath string) (text
 	}, nil
 }
 
-func importsEdit(fileSet *token.FileSet, file *ast.File, modulePath string) (textEdit, error) {
+func importsEdit(fileSet *token.FileSet, file *ast.File, modulePath generatorPath) (textEdit, error) {
 	call := moduleCall(modulePath)
 	var moduleConfig *ast.CompositeLit
 	ast.Inspect(file, func(node ast.Node) bool {
@@ -630,7 +635,7 @@ func identName(expr ast.Expr) string {
 	return ident.Name
 }
 
-func parentHasModuleCall(file *ast.File, modulePath string) bool {
+func parentHasModuleCall(file *ast.File, modulePath generatorPath) bool {
 	return fileHasCall(file, moduleCall(modulePath))
 }
 
@@ -658,31 +663,27 @@ func callExprString(expr ast.Expr) string {
 	return buffer.String()
 }
 
-func moduleCall(modulePath string) string {
-	parts := strings.Split(modulePath, "/")
-	packageName := parts[len(parts)-1]
-	return packageName + ".Module(" + packageName + ".Options{})"
+func moduleCall(modulePath generatorPath) string {
+	return modulePath.packageName + ".Module(" + modulePath.packageName + ".Options{})"
 }
 
-func providerCall(componentPath string, kind componentKind) string {
-	parts := strings.Split(componentPath, "/")
-	typePrefix := exportedName(parts[len(parts)-1])
+func providerCall(componentPath generatorPath, kind componentKind) string {
 	switch kind {
 	case componentController:
-		return "gest.Controller(New" + typePrefix + "Controller)"
+		return "gest.Controller(New" + componentPath.typePrefix + "Controller)"
 	case componentService:
-		return "gest.Provide(New" + typePrefix + "Service)"
+		return "gest.Provide(New" + componentPath.typePrefix + "Service)"
 	default:
 		return ""
 	}
 }
 
-func importPathFor(workDir string, modulePath string) (string, error) {
+func importPathFor(workDir string, modulePath generatorPath) (string, error) {
 	moduleName, err := readGoModulePath(filepath.Join(workDir, "go.mod"))
 	if err != nil {
 		return "", err
 	}
-	return moduleName + "/internal/" + modulePath, nil
+	return moduleName + "/internal/" + modulePath.slash, nil
 }
 
 func readGoModulePath(path string) (string, error) {

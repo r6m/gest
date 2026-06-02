@@ -33,6 +33,27 @@ func TestGenerateModuleCreatesModuleFile(t *testing.T) {
 	assertOutputExcludes(t, content, removedExportCall())
 }
 
+func TestGenerateNestedModuleCreatesMembersModulePath(t *testing.T) {
+	root := moduleFixture(t, nil)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "module", "projects/members", "--no-update-parent"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%q", code, stderr.String())
+	}
+	path := filepath.Join(root, "internal", "projects", "members", "members.module.go")
+	content := readFile(t, path)
+	assertOutputContains(t, stdout.String(), "CREATE internal/projects/members/members.module.go")
+	assertOutputContains(t, content,
+		"package members",
+		`Name: "projects.members"`,
+	)
+}
+
 func TestGenerateModuleDryRunWritesNothing(t *testing.T) {
 	root := moduleFixture(t, map[string]string{
 		"internal/project/project.module.go": parentModuleSource("project", "project"),
@@ -121,6 +142,63 @@ func TestGenerateModuleUpdatesParentModule(t *testing.T) {
 		"Imports: gest.Imports(",
 		"team.Module(team.Options{}),",
 	)
+}
+
+func TestGenerateNestedModuleUpdatesNearestParentModule(t *testing.T) {
+	root := moduleFixture(t, map[string]string{
+		"internal/projects/projects.module.go":                 parentModuleSource("projects", "projects"),
+		"internal/projects/members/members.module.go":          parentModuleSource("members", "projects.members"),
+		"internal/app/app.module.go":                           parentModuleSource("app", "app"),
+		"internal/projects/members/profile/profile.module.go":  "package profile\n",
+		"internal/projects/members/profile/keep.profile.go":    "package profile\n",
+		"internal/projects/members/profile/unused.profile.go":  "package profile\n",
+		"internal/projects/members/profile/unused2.profile.go": "package profile\n",
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "module", "projects/members/profile", "--force"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	members := readFile(t, filepath.Join(root, "internal", "projects", "members", "members.module.go"))
+	projects := readFile(t, filepath.Join(root, "internal", "projects", "projects.module.go"))
+	app := readFile(t, filepath.Join(root, "internal", "app", "app.module.go"))
+	assertOutputContains(t, stdout.String(), "UPDATE internal/projects/members/members.module.go")
+	assertOutputContains(t, members,
+		`"example.test/app/internal/projects/members/profile"`,
+		"profile.Module(profile.Options{}),",
+	)
+	assertOutputExcludes(t, projects, "profile.Module")
+	assertOutputExcludes(t, app, "profile.Module")
+}
+
+func TestGenerateNestedModuleFallsBackToNearestAncestorParent(t *testing.T) {
+	root := moduleFixture(t, map[string]string{
+		"internal/projects/projects.module.go": parentModuleSource("projects", "projects"),
+		"internal/app/app.module.go":           parentModuleSource("app", "app"),
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "module", "projects/members/profile"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	projects := readFile(t, filepath.Join(root, "internal", "projects", "projects.module.go"))
+	app := readFile(t, filepath.Join(root, "internal", "app", "app.module.go"))
+	assertOutputContains(t, stdout.String(), "UPDATE internal/projects/projects.module.go")
+	assertOutputContains(t, projects,
+		`"example.test/app/internal/projects/members/profile"`,
+		"profile.Module(profile.Options{}),",
+	)
+	assertOutputExcludes(t, app, "profile.Module")
 }
 
 func TestGenerateModuleUpdatesRootAppWhenParentMissing(t *testing.T) {
