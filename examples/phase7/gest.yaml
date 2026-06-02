@@ -1,0 +1,9 @@
+project:
+  name: phase7
+entry: ./cmd/api
+generate:
+  root: .
+  openapi: true
+build:
+  output: bin/phase7
+  test: true
