@@ -205,7 +205,7 @@ Goal: generate useful API metadata after handlers and DTOs are stable.
 | P5.1 | Done | Add OpenAPI registry | Collect route metadata during app bootstrap or generation without coupling runtime to Swagger UI. |
 | P5.2 | Done | Generate DTO schemas | Infer request/response schemas from DTO structs, JSON tags, validation tags, and status metadata. |
 | P5.3 | Done | Add OpenAPI module | Provide `openapi.Module` or app-level `OpenAPI("/openapi.json")`. |
-| P5.4 | Planned | Add Swagger module | Serve Swagger UI outside core runtime as an optional module. |
+| P5.4 | Done | Add Swagger module | Serve Swagger UI outside core runtime as an optional module. |
 | P5.5 | Planned | Add OpenAPI validation tests | Verify stable output for the example app and common DTO shapes. |
 
 Exit criteria:
