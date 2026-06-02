@@ -106,6 +106,105 @@ gest build
 
 `gest generate` parses controller comments and writes deterministic Go metadata. `gest build` runs generation, optional tests, and the underlying Go build.
 
+## Built-In Modules
+
+Gest ships optional modules under `github.com/r6m/gest/modules/...`. They are normal Gest modules, so you import only the pieces your app needs.
+
+Define app-owned config as a normal Go type:
+
+```go
+package config
+
+import (
+	"time"
+)
+
+type AppConfig struct {
+	Port      int           `env:"PORT" default:"3000"`
+	JWTSecret string        `env:"JWT_SECRET" validate:"required"`
+	TokenTTL  time.Duration `env:"TOKEN_TTL" default:"1h"`
+}
+```
+
+Load and provide it through the built-in config module:
+
+```go
+package app
+
+import (
+	"log/slog"
+
+	"github.com/r6m/gest"
+	gestconfig "github.com/r6m/gest/modules/config"
+	"github.com/r6m/gest/modules/health"
+	"github.com/r6m/gest/modules/jwt"
+	"github.com/r6m/gest/modules/logger"
+	"github.com/r6m/gest/modules/swagger"
+
+	"example.test/my-api/internal/config"
+)
+
+func Module() gest.Module {
+	return gest.NewModule(gest.ModuleConfig{
+		Name: "AppModule",
+		Imports: gest.Imports(
+			gestconfig.Module(gestconfig.Options{
+				EnvFiles: []string{".env"},
+				Load:     []gestconfig.LoadTarget{gestconfig.Struct[config.AppConfig]()},
+			}),
+			logger.Module(logger.Options{
+				Level:  "info",
+				Format: "json",
+			}),
+			jwt.Module(jwt.Options{
+				SecretFromEnv: "JWT_SECRET",
+				Issuer:        "my-api",
+			}),
+			health.Module(health.Options{
+				Path: "/health",
+			}),
+			swagger.Module(swagger.Options{
+				Path:        "/docs",
+				OpenAPIPath: "/openapi.json",
+			}),
+		),
+		Providers: gest.Providers(
+			gest.Provide(NewUserService),
+			gest.Controller(NewUserController),
+		),
+	})
+}
+
+type UserService struct {
+	config *config.AppConfig
+	logger *slog.Logger
+	tokens *jwt.Service
+}
+
+func NewUserService(config *config.AppConfig, logger *slog.Logger, tokens *jwt.Service) *UserService {
+	return &UserService{config: config, logger: logger, tokens: tokens}
+}
+```
+
+Use validation at app startup when you want `validate` tags on bound DTOs to run automatically:
+
+```go
+server := gest.New(
+	gest.WithValidator(validation.NewValidator()),
+)
+server.OpenAPI("/openapi.json", gest.OpenAPITitle("Users API"))
+server.Import(app.Module())
+```
+
+Available modules:
+
+- `modules/config`: load `.env` files and env vars into `config.Service` or app-owned structs.
+- `modules/logger`: provide a configured `*slog.Logger`.
+- `modules/validation`: provide `gest.Validator`, or use `validation.NewValidator()` with `gest.WithValidator(...)`.
+- `modules/health`: expose `/health`, `/health/live`, and `/health/ready`.
+- `modules/jwt`: sign and verify HS256 access tokens.
+- `modules/swagger`: serve Swagger UI for your OpenAPI route.
+
 ## Testing
 
 ```go
