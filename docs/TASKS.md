@@ -256,7 +256,7 @@ Design rules:
 
 | ID | Status | Task | Description |
 | --- | --- | --- | --- |
-| P7.1 | Planned | Config module | Add `modules/config` with `.env` loading, typed getters, and user-owned struct loading through DI. |
+| P7.1 | Done | Config module | Add `modules/config` with `.env` loading, typed getters, and user-owned struct loading through DI. |
 | P7.2 | Planned | Logger module | Add `modules/logger` using `log/slog`; provide `*slog.Logger` through DI without coupling boot logs to the module. |
 | P7.3 | Planned | Validation module | Add `modules/validation` with a concrete `gest.Validator` implementation and explicit app installation if needed. |
 | P7.4 | Planned | Health module | Add `modules/health` with `/health`, `/health/live`, and `/health/ready` returning `{"status":"ok"}`. |
