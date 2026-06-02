@@ -98,6 +98,20 @@ func (a *App) Listen(addr string) error {
 	return a.router.Serve(addr)
 }
 
+// ServeHTTP builds the app if needed and serves a request through the configured router.
+func (a *App) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	if err := a.bootstrap(); err != nil {
+		_ = WriteError(response, err)
+		return
+	}
+	handler, ok := a.router.(http.Handler)
+	if !ok {
+		_ = WriteError(response, Internal("router does not support in-memory HTTP serving"))
+		return
+	}
+	handler.ServeHTTP(response, request)
+}
+
 func (a *App) bootstrap() error {
 	if a.built {
 		return nil
