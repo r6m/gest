@@ -7,10 +7,13 @@ type DescribedController interface {
 
 // ControllerDefinition describes a controller and its routes.
 type ControllerDefinition struct {
-	Name     string
-	BasePath string
-	Tag      string
-	Routes   []RouteDefinition
+	Name        string
+	BasePath    string
+	Tag         string
+	Components  []RouteComponentFactory
+	Middlewares []MiddlewareFactory
+	Guards      []GuardFactory
+	Routes      []RouteDefinition
 }
 
 // RouteDefinition describes a route and its runtime handler.
@@ -23,8 +26,9 @@ type RouteDefinition struct {
 	Response    any
 	Statuses    []int
 	Metadata    RouteMetadata
+	Components  []RouteComponentFactory
 	Guards      []GuardFactory
-	Middlewares []Middleware
+	Middlewares []MiddlewareFactory
 }
 
 // RouteMetadata carries optional route metadata used by generators and runtime adapters.
@@ -39,6 +43,3 @@ type RouteMetadata struct {
 
 // HandlerFunc is the runtime route handler shape.
 type HandlerFunc func(ctx *Context) error
-
-// Middleware is a placeholder for later middleware adapter behavior.
-type Middleware func(HandlerFunc) HandlerFunc

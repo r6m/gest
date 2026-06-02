@@ -102,22 +102,22 @@ func TestAdapterQueryAndHeaderHelpersWork(t *testing.T) {
 func TestAdapterMiddlewareOrderWorks(t *testing.T) {
 	adapter := New()
 	order := make([]string, 0, 3)
-	adapter.Use(func(next gest.HandlerFunc) gest.HandlerFunc {
+	adapter.Use(gest.MiddlewareFunc(func(next gest.HandlerFunc) gest.HandlerFunc {
 		return func(ctx *gest.Context) error {
 			order = append(order, "first-before")
 			err := next(ctx)
 			order = append(order, "first-after")
 			return err
 		}
-	})
-	adapter.Use(func(next gest.HandlerFunc) gest.HandlerFunc {
+	}))
+	adapter.Use(gest.MiddlewareFunc(func(next gest.HandlerFunc) gest.HandlerFunc {
 		return func(ctx *gest.Context) error {
 			order = append(order, "second-before")
 			err := next(ctx)
 			order = append(order, "second-after")
 			return err
 		}
-	})
+	}))
 	adapter.Handle(gest.RouteRuntimeConfig{
 		Method: http.MethodGet,
 		Path:   "/ordered",

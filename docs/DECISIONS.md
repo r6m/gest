@@ -203,6 +203,28 @@ Consequences:
 - Generated code should emit the correct wrapper call directly.
 - Future specialized helpers are allowed if they improve clarity or performance without complicating user code.
 
+## ADR-0013: Unified Use Decorator For Middleware And Guards
+
+Status: Accepted
+
+Gest uses one `@Use(...)` decorator for middleware and guards. The referenced provider is classified by the interface it implements.
+
+Rationale:
+
+- `@UseMiddleware` is too narrow and verbose.
+- A single decorator keeps the Nest-ish feel without copying Nest's separate auth/role/policy decorators.
+- Middleware and guards are route components; users should not need separate decorator families for the MVP.
+
+Consequences:
+
+- App-level middleware uses `app.Use(...)`.
+- Dependency-injected middleware implements `Middleware`.
+- Function middleware uses `MiddlewareFunc`.
+- Guards implement `Guard`.
+- Generated metadata classifies `@Use(...)` references into middleware or guard factories.
+- Execution order is app middleware, controller middleware, route middleware, guards, handler.
+- Auth, roles, and permissions remain user-owned policy.
+
 ## ADR-0006: Tests And Lint Are Required
 
 Status: Accepted

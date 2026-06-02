@@ -992,42 +992,102 @@ Auth, roles, and permissions are application policy. Gest must not ship a built-
 
 Gest should provide mechanics that make user-owned auth modules pleasant:
 
+- app-level middleware
+- controller and route middleware
 - DI-resolved guards
-- route metadata
+- route metadata through a single `@Use(...)` decorator
 - context storage
 - bearer-token helpers
 - OpenAPI security metadata hooks later
 
-Built-in auth policy shortcuts are not part of v0. User applications can define their own decorators or guard conventions later, but Gest should start with explicit guards:
+Built-in auth policy shortcuts are not part of v0. User applications can define their own decorators or guard conventions later, but Gest should start with explicit `@Use(...)` references:
 
 ```go
 // @Use(auth.JWTGuard)
+// @Use(requestlog.Audit)
 ```
 
-Custom guards:
+`@Use(...)` is intentionally broad. The referenced provider decides what it is by implementing a Gest interface.
+
+## Middleware and guard interfaces
 
 ```go
-// @Use(auth.JWTGuard)
-```
+type Middleware interface {
+	Handle(next HandlerFunc) HandlerFunc
+}
 
-Generated route metadata should include:
+type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
-```go
-Metadata: gest.RouteMetadata{
-	Auth:        true,
-	Roles:       []string{"admin"},
-	Permissions: []string{"project:read"},
+func (f MiddlewareFunc) Handle(next HandlerFunc) HandlerFunc {
+	return f(next)
+}
+
+type Guard interface {
+	CanActivate(ctx *Context) error
 }
 ```
 
-Route guards should be resolved from DI:
+Function middleware remains supported through `MiddlewareFunc`, while dependency-injected middleware should usually be structs:
 
 ```go
-Guards: []gest.GuardFactory{
-	gest.ResolveGuard[*auth.JWTGuard](),
-	gest.ResolveGuard[*auth.RolesGuard](),
+type RequestLogger struct {
+	log *slog.Logger
+}
+
+func NewRequestLogger(log *slog.Logger) *RequestLogger {
+	return &RequestLogger{log: log}
+}
+
+func (m *RequestLogger) Handle(next gest.HandlerFunc) gest.HandlerFunc {
+	return func(ctx *gest.Context) error {
+		start := time.Now()
+		err := next(ctx)
+
+		req := ctx.RawRequest()
+		m.log.Info("request",
+			"method", req.Method,
+			"path", req.URL.Path,
+			"status", ctx.ResponseStatus(),
+			"duration_ms", time.Since(start).Milliseconds(),
+		)
+
+		return err
+	}
 }
 ```
+
+App-level middleware applies to every route:
+
+```go
+app.Use(gest.MiddlewareFunc(func(next gest.HandlerFunc) gest.HandlerFunc {
+	return func(ctx *gest.Context) error {
+		return next(ctx)
+	}
+}))
+```
+
+Request logging skip logic belongs in the middleware itself, not in framework-level route skip rules.
+
+Generated route metadata should classify `@Use(...)` references by interface:
+
+```go
+Components: []gest.RouteComponentFactory{
+	gest.ResolveRouteComponent[*requestlog.Audit](),
+	gest.ResolveRouteComponent[*auth.JWTGuard](),
+},
+```
+
+Execution order is strict:
+
+```txt
+app middleware
+controller middleware
+route middleware
+guards
+handler
+```
+
+Within middleware and guard categories, declaration order is preserved. If a user mixes middleware and guards in `@Use(...)`, category order wins.
 
 User-owned auth module example:
 
@@ -1062,7 +1122,6 @@ func Module(options Options) gest.Module {
 
 			gest.Provide(NewAuthService),
 			gest.Provide(NewJWTGuard),
-			gest.Provide(NewRolesGuard),
 
 			gest.Controller(NewAuthController),
 		),

@@ -22,6 +22,7 @@ type App struct {
 	modules       []Module
 	validator     Validator
 	routes        []OpenAPIRoute
+	middlewares   []Middleware
 	openapi       *openAPIConfig
 	bootLogs      bool
 	bootLogWriter io.Writer
@@ -79,6 +80,11 @@ func WithValidator(validator Validator) Option {
 // Import adds modules to the application.
 func (a *App) Import(modules ...Module) {
 	a.modules = append(a.modules, modules...)
+}
+
+// Use registers app-level middleware for every route.
+func (a *App) Use(middleware ...Middleware) {
+	a.middlewares = append(a.middlewares, middleware...)
 }
 
 // OpenAPIRoutes returns the route metadata collected during bootstrap.
@@ -168,6 +174,12 @@ func (a *App) bootstrap() error {
 
 	seenRoutes := make(map[string]struct{})
 	appContainer := &container{root: rootContainer}
+	for _, middleware := range a.middlewares {
+		if middleware == nil {
+			return routeComponentError("app", "middleware is nil")
+		}
+		a.router.Use(middleware)
+	}
 	for _, controller := range controllers {
 		if err := a.registerController(controller, appContainer, seenRoutes); err != nil {
 			return err
@@ -264,22 +276,88 @@ func (a *App) registerController(controller controllerRegistration, appContainer
 			return duplicateRouteError(key)
 		}
 		seenRoutes[key] = struct{}{}
-		guards, err := resolveRouteGuards(route, appContainer)
+		middlewares, guards, err := resolveRouteComponents(definition, route, appContainer)
 		if err != nil {
 			return err
 		}
 		a.routes = append(a.routes, newOpenAPIRoute(definition, route, fullPath))
 		a.router.Handle(RouteRuntimeConfig{
-			Method:    route.Method,
-			Path:      fullPath,
-			Handler:   route.Handler,
-			Guards:    guards,
-			Validator: a.validator,
+			Method:     route.Method,
+			Path:       fullPath,
+			Handler:    route.Handler,
+			Middleware: middlewares,
+			Guards:     guards,
+			Validator:  a.validator,
 		})
 		a.logBoot("GEST route: %s %s -> %s.%s", strings.ToUpper(route.Method), fullPath, definition.Name, route.Name)
 	}
 
 	return nil
+}
+
+func resolveRouteComponents(
+	controller ControllerDefinition,
+	route RouteDefinition,
+	appContainer Container,
+) ([]Middleware, []Guard, error) {
+	middlewares, guards, err := classifyRouteComponents(
+		route.Name,
+		appendRouteComponentFactories(controller.Components, route.Components),
+		appContainer,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	explicitMiddlewares, err := resolveRouteMiddlewares(route.Name, appendMiddlewareFactories(controller.Middlewares, route.Middlewares), appContainer)
+	if err != nil {
+		return nil, nil, err
+	}
+	middlewares = append(middlewares, explicitMiddlewares...)
+	explicitGuards, err := resolveRouteGuards(route, appContainer)
+	if err != nil {
+		return nil, nil, err
+	}
+	guards = append(guards, explicitGuards...)
+	return middlewares, guards, nil
+}
+
+func classifyRouteComponents(routeName string, factories []RouteComponentFactory, appContainer Container) ([]Middleware, []Guard, error) {
+	middlewares := []Middleware{}
+	guards := []Guard{}
+	for _, factory := range factories {
+		value, err := factory(appContainer)
+		if err != nil {
+			return nil, nil, fmt.Errorf("ROUTE_COMPONENT_RESOLVE: route %s component failed to resolve: %w", routeName, err)
+		}
+		switch component := value.(type) {
+		case Middleware:
+			middlewares = append(middlewares, component)
+		case Guard:
+			guards = append(guards, component)
+		default:
+			return nil, nil, routeComponentError(routeName, fmt.Sprintf("resolved provider %T implements neither gest.Middleware nor gest.Guard", value))
+		}
+	}
+	return middlewares, guards, nil
+}
+
+func resolveRouteMiddlewares(routeName string, factories []MiddlewareFactory, appContainer Container) ([]Middleware, error) {
+	if len(factories) == 0 {
+		return nil, nil
+	}
+
+	middlewares := make([]Middleware, 0, len(factories))
+	for _, factory := range factories {
+		middleware, err := factory(appContainer)
+		if err != nil {
+			return nil, fmt.Errorf("ROUTE_MIDDLEWARE_RESOLVE: route %s middleware failed to resolve: %w", routeName, err)
+		}
+		if middleware == nil {
+			return nil, fmt.Errorf("ROUTE_MIDDLEWARE_RESOLVE: route %s middleware factory returned nil", routeName)
+		}
+		middlewares = append(middlewares, middleware)
+	}
+	return middlewares, nil
 }
 
 func resolveRouteGuards(route RouteDefinition, appContainer Container) ([]Guard, error) {
@@ -299,6 +377,26 @@ func resolveRouteGuards(route RouteDefinition, appContainer Container) ([]Guard,
 		guards = append(guards, guard)
 	}
 	return guards, nil
+}
+
+func appendMiddlewareFactories(controllerMiddlewares []MiddlewareFactory, routeMiddlewares []MiddlewareFactory) []MiddlewareFactory {
+	if len(controllerMiddlewares) == 0 {
+		return routeMiddlewares
+	}
+	middlewares := make([]MiddlewareFactory, 0, len(controllerMiddlewares)+len(routeMiddlewares))
+	middlewares = append(middlewares, controllerMiddlewares...)
+	middlewares = append(middlewares, routeMiddlewares...)
+	return middlewares
+}
+
+func appendRouteComponentFactories(controllerComponents []RouteComponentFactory, routeComponents []RouteComponentFactory) []RouteComponentFactory {
+	if len(controllerComponents) == 0 {
+		return routeComponents
+	}
+	components := make([]RouteComponentFactory, 0, len(controllerComponents)+len(routeComponents))
+	components = append(components, controllerComponents...)
+	components = append(components, routeComponents...)
+	return components
 }
 
 func (a *App) callStartupHook(ctx context.Context, hook string) error {
@@ -413,6 +511,14 @@ func duplicateRouteError(route string) error {
 	}
 }
 
+func routeComponentError(route string, message string) error {
+	return &appError{
+		Code:    "ROUTE_COMPONENT_INVALID",
+		Message: "route " + route + " component invalid: " + message,
+		Hint:    "use providers implementing gest.Middleware or gest.Guard",
+	}
+}
+
 type defaultRouter struct {
 	router chi.Router
 }
@@ -433,6 +539,7 @@ func (r *defaultRouter) Group(prefix string, fn func(group RouterAdapter)) {
 
 func (r *defaultRouter) Handle(route RouteRuntimeConfig) {
 	handler := GuardedHandler(route.Handler, route.Guards)
+	handler = MiddlewareHandler(handler, route.Middleware)
 	r.router.MethodFunc(strings.ToUpper(route.Method), route.Path, func(response http.ResponseWriter, request *http.Request) {
 		context := NewContext(response, request)
 		context.SetValidator(route.Validator)
@@ -440,7 +547,7 @@ func (r *defaultRouter) Handle(route RouteRuntimeConfig) {
 			context.SetParam(key, chi.URLParam(request, key))
 		}
 		if err := handler(context); err != nil {
-			_ = WriteError(response, err)
+			_ = WriteError(context.RawResponse(), err)
 		}
 	})
 }
@@ -456,8 +563,8 @@ func (r *defaultRouter) Use(middleware Middleware) {
 			for _, key := range chi.RouteContext(request.Context()).URLParams.Keys {
 				context.SetParam(key, chi.URLParam(request, key))
 			}
-			if err := middleware(handler)(context); err != nil {
-				_ = WriteError(response, err)
+			if err := middleware.Handle(handler)(context); err != nil {
+				_ = WriteError(context.RawResponse(), err)
 			}
 		})
 	})

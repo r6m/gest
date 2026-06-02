@@ -882,6 +882,111 @@ func TestAppRunsGuardsBeforeHandler(t *testing.T) {
 	assertStringSlice(t, order, []string{"guard", "handler"})
 }
 
+func TestAppMiddlewareRunsForEveryRoute(t *testing.T) {
+	calls := 0
+	app := New()
+	app.Use(MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(ctx *Context) error {
+			calls++
+			return next(ctx)
+		}
+	}))
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(Controller(func() *multiRouteController {
+			return &multiRouteController{}
+		})),
+	}))
+
+	app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/one", nil))
+	app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/two", nil))
+
+	if calls != 2 {
+		t.Fatalf("middleware calls = %d, want 2", calls)
+	}
+}
+
+func TestAppMiddlewareOrderAndGuardOrder(t *testing.T) {
+	order := []string{}
+	app := New()
+	app.Use(recordMiddleware("app", &order))
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(Controller(func() *guardController {
+			return &guardController{
+				handler: func(ctx *Context) error {
+					order = append(order, "handler")
+					return ctx.NoContent(http.StatusNoContent)
+				},
+				middlewares: []MiddlewareFactory{staticMiddlewareFactory(recordMiddleware("route", &order))},
+				guards:      []GuardFactory{staticGuardFactory(recordGuard("guard", &order))},
+			}
+		})),
+	}))
+
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/guarded", nil))
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+	assertStringSlice(t, order, []string{"app-before", "route-before", "guard", "handler", "route-after", "app-after"})
+}
+
+func TestMiddlewareCanObserveFinalResponseStatus(t *testing.T) {
+	observed := -1
+	app := New()
+	app.Use(MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(ctx *Context) error {
+			if before := ctx.ResponseStatus(); before != 0 {
+				t.Fatalf("ResponseStatus before write = %d, want 0", before)
+			}
+			err := next(ctx)
+			observed = ctx.ResponseStatus()
+			return err
+		}
+	}))
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(Controller(func() *guardController {
+			return &guardController{
+				handler: func(ctx *Context) error {
+					return ctx.JSON(http.StatusCreated, map[string]string{"ok": "true"})
+				},
+			}
+		})),
+	}))
+
+	app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/guarded", nil))
+
+	if observed != http.StatusCreated {
+		t.Fatalf("observed status = %d, want %d", observed, http.StatusCreated)
+	}
+}
+
+func TestResponseStatusTracksNoContentAndErrors(t *testing.T) {
+	noContentRecorder := httptest.NewRecorder()
+	noContent := NewContext(noContentRecorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if before := noContent.ResponseStatus(); before != 0 {
+		t.Fatalf("ResponseStatus before write = %d, want 0", before)
+	}
+	if err := noContent.NoContent(http.StatusAccepted); err != nil {
+		t.Fatalf("NoContent returned error: %v", err)
+	}
+	if got := noContent.ResponseStatus(); got != http.StatusAccepted {
+		t.Fatalf("NoContent ResponseStatus = %d, want %d", got, http.StatusAccepted)
+	}
+
+	errorRecorder := httptest.NewRecorder()
+	errorContext := NewContext(errorRecorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if err := WriteError(errorContext.RawResponse(), Forbidden("blocked")); err != nil {
+		t.Fatalf("WriteError returned error: %v", err)
+	}
+	if got := errorContext.ResponseStatus(); got != http.StatusForbidden {
+		t.Fatalf("error ResponseStatus = %d, want %d", got, http.StatusForbidden)
+	}
+}
+
 func TestAppFailingGuardPreventsHandler(t *testing.T) {
 	called := false
 	app := New()
@@ -908,6 +1013,103 @@ func TestAppFailingGuardPreventsHandler(t *testing.T) {
 	}
 	if called {
 		t.Fatal("handler was called after failing guard")
+	}
+}
+
+func TestAppDIResolvedMiddlewareReceivesDependencies(t *testing.T) {
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(
+			Provide(func() *guardDependency {
+				return &guardDependency{value: "from middleware"}
+			}),
+			Provide(func(dependency *guardDependency) *dependencyMiddleware {
+				return &dependencyMiddleware{dependency: dependency}
+			}),
+			Controller(func() *guardController {
+				return &guardController{
+					handler: func(ctx *Context) error {
+						value, _ := ctx.Get("dependency")
+						return ctx.JSON(http.StatusOK, map[string]any{"dependency": value})
+					},
+					middlewares: []MiddlewareFactory{ResolveMiddleware[*dependencyMiddleware]()},
+				}
+			}),
+		),
+	}))
+
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/guarded", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if got := recorder.Body.String(); got != "{\"dependency\":\"from middleware\"}\n" {
+		t.Fatalf("body = %q, want dependency JSON", got)
+	}
+}
+
+func TestAppRouteComponentImplementingNeitherMiddlewareNorGuardErrors(t *testing.T) {
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(
+			Provide(func() *plainRouteComponent {
+				return &plainRouteComponent{}
+			}),
+			Controller(func() *guardController {
+				return &guardController{
+					handler:    emptyHandler,
+					components: []RouteComponentFactory{ResolveRouteComponent[*plainRouteComponent]()},
+				}
+			}),
+		),
+	}))
+
+	err := app.bootstrap()
+	if err == nil {
+		t.Fatal("bootstrap returned nil error, want invalid route component error")
+	}
+	if !strings.Contains(err.Error(), "ROUTE_COMPONENT_INVALID") {
+		t.Fatalf("error = %q, want route component invalid code", err)
+	}
+	if !strings.Contains(err.Error(), "implements neither gest.Middleware nor gest.Guard") {
+		t.Fatalf("error = %q, want clear interface classification message", err)
+	}
+}
+
+func TestResolveGuardReceivesDependencies(t *testing.T) {
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(
+			Provide(func() *guardDependency {
+				return &guardDependency{value: "allowed"}
+			}),
+			Provide(func(dependency *guardDependency) *dependencyGuard {
+				return &dependencyGuard{dependency: dependency}
+			}),
+			Controller(func() *guardController {
+				return &guardController{
+					handler: func(ctx *Context) error {
+						value, _ := ctx.Get("dependency")
+						return ctx.JSON(http.StatusOK, map[string]any{"dependency": value})
+					},
+					guards: []GuardFactory{ResolveGuard[*dependencyGuard]()},
+				}
+			}),
+		),
+	}))
+
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/guarded", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if got := recorder.Body.String(); got != "{\"dependency\":\"allowed\"}\n" {
+		t.Fatalf("body = %q, want dependency JSON", got)
 	}
 }
 
@@ -1084,8 +1286,10 @@ func (c *errorController) GestController() ControllerDefinition {
 }
 
 type guardController struct {
-	handler HandlerFunc
-	guards  []GuardFactory
+	handler     HandlerFunc
+	components  []RouteComponentFactory
+	middlewares []MiddlewareFactory
+	guards      []GuardFactory
 }
 
 func (c *guardController) GestController() ControllerDefinition {
@@ -1093,11 +1297,35 @@ func (c *guardController) GestController() ControllerDefinition {
 		Name: "GuardController",
 		Routes: []RouteDefinition{
 			{
-				Name:    "Guarded",
+				Name:        "Guarded",
+				Method:      http.MethodGet,
+				Path:        "/guarded",
+				Handler:     c.handler,
+				Components:  c.components,
+				Middlewares: c.middlewares,
+				Guards:      c.guards,
+			},
+		},
+	}
+}
+
+type multiRouteController struct{}
+
+func (c *multiRouteController) GestController() ControllerDefinition {
+	return ControllerDefinition{
+		Name: "MultiRouteController",
+		Routes: []RouteDefinition{
+			{
+				Name:    "One",
 				Method:  http.MethodGet,
-				Path:    "/guarded",
-				Handler: c.handler,
-				Guards:  c.guards,
+				Path:    "/one",
+				Handler: emptyHandler,
+			},
+			{
+				Name:    "Two",
+				Method:  http.MethodGet,
+				Path:    "/two",
+				Handler: emptyHandler,
 			},
 		},
 	}
@@ -1115,6 +1343,19 @@ func (g *dependencyGuard) CanActivate(ctx *Context) error {
 	ctx.Set("dependency", g.dependency.value)
 	return nil
 }
+
+type dependencyMiddleware struct {
+	dependency *guardDependency
+}
+
+func (m *dependencyMiddleware) Handle(next HandlerFunc) HandlerFunc {
+	return func(ctx *Context) error {
+		ctx.Set("dependency", m.dependency.value)
+		return next(ctx)
+	}
+}
+
+type plainRouteComponent struct{}
 
 func dependencyGuardFactory(container Container) (Guard, error) {
 	value, err := container.Resolve(TokenOf[*guardDependency]())
@@ -1134,10 +1375,27 @@ func staticGuardFactory(guard Guard) GuardFactory {
 	}
 }
 
+func staticMiddlewareFactory(middleware Middleware) MiddlewareFactory {
+	return func(Container) (Middleware, error) {
+		return middleware, nil
+	}
+}
+
 func recordGuard(value string, order *[]string) Guard {
 	return GuardFunc(func(ctx *Context) error {
 		*order = append(*order, value)
 		return nil
+	})
+}
+
+func recordMiddleware(value string, order *[]string) Middleware {
+	return MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(ctx *Context) error {
+			*order = append(*order, value+"-before")
+			err := next(ctx)
+			*order = append(*order, value+"-after")
+			return err
+		}
 	})
 }
 

@@ -8,7 +8,7 @@ import (
 
 // Context wraps net/http request and response objects without hiding them.
 type Context struct {
-	response  http.ResponseWriter
+	response  *statusResponseWriter
 	request   *http.Request
 	params    map[string]string
 	values    map[string]any
@@ -19,8 +19,12 @@ type Context struct {
 
 // NewContext creates a net/http-backed context.
 func NewContext(response http.ResponseWriter, request *http.Request) *Context {
+	trackedResponse, ok := response.(*statusResponseWriter)
+	if !ok {
+		trackedResponse = &statusResponseWriter{ResponseWriter: response}
+	}
 	return &Context{
-		response:  response,
+		response:  trackedResponse,
 		request:   request,
 		params:    make(map[string]string),
 		values:    make(map[string]any),
@@ -78,6 +82,11 @@ func (c *Context) NoContent(status int) error {
 	return nil
 }
 
+// ResponseStatus returns the response status written so far, or 0 before a status is written.
+func (c *Context) ResponseStatus() int {
+	return c.response.status
+}
+
 // Validate validates a bound request DTO using the configured validator.
 func (c *Context) Validate(v any) error {
 	if c.validator == nil {
@@ -133,4 +142,23 @@ func (c *Context) RawResponse() http.ResponseWriter {
 // RawRequest returns the underlying net/http request.
 func (c *Context) RawRequest() *http.Request {
 	return c.request
+}
+
+type statusResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusResponseWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+		w.ResponseWriter.WriteHeader(status)
+	}
+}
+
+func (w *statusResponseWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(data)
 }

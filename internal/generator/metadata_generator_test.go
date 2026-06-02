@@ -234,7 +234,7 @@ func (c *UserController) Find(ctx *gest.Context, req *FindUserRequest) (*FindUse
 	assertContains(t, content, "Statuses: []int{404, 202, 201},")
 }
 
-func TestGenerateMetadataFilesRouteLevelGuardFactory(t *testing.T) {
+func TestGenerateMetadataFilesRouteLevelUseComponentFactory(t *testing.T) {
 	root := newFixture(t, map[string]string{
 		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
 		"auth/auth.go": `package auth
@@ -260,9 +260,8 @@ func (c *UserController) List(ctx *gest.Context) error { return nil }
 	files := generateFixtureMetadata(t, root)
 	content := string(files[0].Content)
 	assertContains(t, content, `"example.test/app/auth"`)
-	assertContains(t, content, "Guards: []gest.GuardFactory{")
-	assertContains(t, content, "container.Resolve(gest.TokenOf[*auth.JWTGuard]())")
-	assertContains(t, content, "guard, ok := value.(gest.Guard)")
+	assertContains(t, content, "Components: []gest.RouteComponentFactory{")
+	assertContains(t, content, "gest.ResolveRouteComponent[*auth.JWTGuard](),")
 	assertNoHiddenRegistry(t, files[0].Content)
 }
 
@@ -294,8 +293,109 @@ func (c *UserController) Create(ctx *gest.Context) error { return nil }
 
 	files := generateFixtureMetadata(t, root)
 	content := string(files[0].Content)
-	if strings.Count(content, "container.Resolve(gest.TokenOf[*auth.JWTGuard]())") != 2 {
-		t.Fatalf("generated content:\n%s\nwant controller guard factory on both routes", content)
+	if strings.Count(content, "gest.ResolveRouteComponent[*auth.JWTGuard]()") != 2 {
+		t.Fatalf("generated content:\n%s\nwant controller route component factory on both routes", content)
+	}
+}
+
+func TestGenerateMetadataFilesRouteLevelMiddlewareComponentFactory(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"requestlog/audit.go": `package requestlog
+
+type Audit struct{}
+`,
+		"users/controller.go": `package users
+
+import (
+	"github.com/r6m/gest"
+	"example.test/app/requestlog"
+)
+
+// @Controller("/users")
+type UserController struct{}
+
+// @Get("/")
+// @Use(requestlog.Audit)
+func (c *UserController) List(ctx *gest.Context) error { return nil }
+`,
+	})
+
+	files := generateFixtureMetadata(t, root)
+	content := string(files[0].Content)
+	assertContains(t, content, `"example.test/app/requestlog"`)
+	assertContains(t, content, "Components: []gest.RouteComponentFactory{")
+	assertContains(t, content, "gest.ResolveRouteComponent[*requestlog.Audit](),")
+}
+
+func TestGenerateMetadataFilesRouteLevelUseAppliesOnlyToOneRoute(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"requestlog/audit.go": `package requestlog
+
+type Audit struct{}
+`,
+		"users/controller.go": `package users
+
+import (
+	"github.com/r6m/gest"
+	"example.test/app/requestlog"
+)
+
+// @Controller("/users")
+type UserController struct{}
+
+// @Get("/")
+// @Use(requestlog.Audit)
+func (c *UserController) List(ctx *gest.Context) error { return nil }
+
+// @Post("/")
+func (c *UserController) Create(ctx *gest.Context) error { return nil }
+`,
+	})
+
+	files := generateFixtureMetadata(t, root)
+	content := string(files[0].Content)
+	if strings.Count(content, "gest.ResolveRouteComponent[*requestlog.Audit]()") != 1 {
+		t.Fatalf("generated content:\n%s\nwant route-level component on one route", content)
+	}
+}
+
+func TestGenerateMetadataFilesMixedUseDeclarationsPreserveDeclarationOrder(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"auth/auth.go": `package auth
+
+type JWTGuard struct{}
+`,
+		"requestlog/audit.go": `package requestlog
+
+type Audit struct{}
+`,
+		"users/controller.go": `package users
+
+import (
+	"github.com/r6m/gest"
+	"example.test/app/auth"
+	"example.test/app/requestlog"
+)
+
+// @Controller("/users")
+type UserController struct{}
+
+// @Get("/")
+// @Use(requestlog.Audit)
+// @Use(auth.JWTGuard)
+func (c *UserController) List(ctx *gest.Context) error { return nil }
+`,
+	})
+
+	files := generateFixtureMetadata(t, root)
+	content := string(files[0].Content)
+	auditIndex := strings.Index(content, "gest.ResolveRouteComponent[*requestlog.Audit]()")
+	guardIndex := strings.Index(content, "gest.ResolveRouteComponent[*auth.JWTGuard]()")
+	if auditIndex < 0 || guardIndex < 0 || auditIndex > guardIndex {
+		t.Fatalf("generated content:\n%s\nwant mixed @Use declarations in source order", content)
 	}
 }
 
@@ -325,7 +425,7 @@ func (c *UserController) List(ctx *gest.Context) error { return nil }
 	files := generateFixtureMetadata(t, root)
 	content := string(files[0].Content)
 	assertContains(t, content, `security "example.test/app/auth"`)
-	assertContains(t, content, "container.Resolve(gest.TokenOf[*security.JWTGuard]())")
+	assertContains(t, content, "gest.ResolveRouteComponent[*security.JWTGuard](),")
 }
 
 func TestGenerateMetadataFilesContextErrorHandlerUsesHandleContext(t *testing.T) {

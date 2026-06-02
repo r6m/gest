@@ -40,7 +40,7 @@ type Route struct {
 	Column       int
 }
 
-// GuardReference describes a parsed @Use(pkg.Symbol) guard reference.
+// GuardReference describes a parsed @Use(pkg.Symbol) route component reference.
 type GuardReference struct {
 	Alias      string
 	Symbol     string
@@ -390,8 +390,8 @@ func parseUseGuard(decorator decorator, imports map[string]string, diagnostics *
 	if !ok {
 		*diagnostics = append(*diagnostics, invalidSyntaxDiagnostic(
 			decorator,
-			"@Use requires a single imported guard selector argument",
-			"use @Use(auth.JWTGuard)",
+			"@Use requires a single imported middleware or guard selector argument",
+			"use @Use(auth.JWTGuard) or @Use(requestlog.Audit)",
 		))
 		return GuardReference{}, false
 	}
@@ -815,8 +815,8 @@ func unresolvedGuardAliasDiagnostic(decorator decorator, alias string) Diagnosti
 	return Diagnostic{
 		Severity: SeverityError,
 		Code:     DiagnosticInvalidDecoratorSyntax,
-		Message:  "unresolved guard import alias " + alias,
-		Hint:     "import the guard package in this controller file; package scanning and hidden registries are not used",
+		Message:  "unresolved middleware or guard import alias " + alias,
+		Hint:     "import the middleware or guard package in this controller file; package scanning and hidden registries are not used",
 		File:     decorator.File,
 		Line:     decorator.Line,
 		Column:   decorator.Column,

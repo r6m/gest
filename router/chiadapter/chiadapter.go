@@ -39,6 +39,7 @@ func (a *Adapter) Group(prefix string, fn func(group gest.RouterAdapter)) {
 // Handle registers a route handler.
 func (a *Adapter) Handle(route gest.RouteRuntimeConfig) {
 	handler := gest.GuardedHandler(route.Handler, route.Guards)
+	handler = gest.MiddlewareHandler(handler, route.Middleware)
 	a.router.MethodFunc(normalizeMethod(route.Method), route.Path, func(response http.ResponseWriter, request *http.Request) {
 		context := gest.NewContext(response, request)
 		context.SetValidator(route.Validator)
@@ -47,7 +48,7 @@ func (a *Adapter) Handle(route gest.RouteRuntimeConfig) {
 		}
 
 		if err := handler(context); err != nil {
-			_ = gest.WriteError(response, err)
+			_ = gest.WriteError(context.RawResponse(), err)
 		}
 	})
 }
@@ -64,8 +65,8 @@ func (a *Adapter) Use(middleware gest.Middleware) {
 			for _, key := range chi.RouteContext(request.Context()).URLParams.Keys {
 				context.SetParam(key, chi.URLParam(request, key))
 			}
-			if err := middleware(handler)(context); err != nil {
-				_ = gest.WriteError(response, err)
+			if err := middleware.Handle(handler)(context); err != nil {
+				_ = gest.WriteError(context.RawResponse(), err)
 			}
 		})
 	})

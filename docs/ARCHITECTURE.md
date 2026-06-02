@@ -205,6 +205,38 @@ JWT must not assume a user database, repository, ORM, or user model.
 
 Gest must not ship built-in auth, role, or permission modules. Auth policy is user-owned application code. Gest may provide guard mechanics, route metadata, bearer-token helpers, and optional JWT utilities, but it must not own user identity, roles, permissions, repositories, or policy semantics.
 
+Middleware is a first-class runtime mechanic. The app-level API should be `app.Use(...)`, and route/controller middleware should be expressible through metadata. `@Use(...)` is the single decorator for attaching middleware or guards; the referenced provider is classified by the interface it implements.
+
+Middleware and guard execution order is:
+
+```txt
+app middleware
+controller middleware
+route middleware
+guards
+handler
+```
+
+Middleware should use:
+
+```go
+type Middleware interface {
+	Handle(next HandlerFunc) HandlerFunc
+}
+
+type MiddlewareFunc func(next HandlerFunc) HandlerFunc
+```
+
+Guards should use:
+
+```go
+type Guard interface {
+	CanActivate(ctx *Context) error
+}
+```
+
+Request logging should be user-owned middleware. Gest should provide response status tracking through `Context.ResponseStatus()` so middleware can log final status without wrapping router-native response writers itself.
+
 Typed handler adaptation must happen at route-definition time. Generated metadata should use explicit helpers such as `gest.HandleRequestResponse(...)`. Public convenience adapters such as `gest.Handle(...)` may inspect the handler shape while creating a `HandlerFunc`, but the resulting handler must not perform signature reflection on every request.
 
 ## Error Contract

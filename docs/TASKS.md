@@ -291,9 +291,9 @@ Goal: add advanced features only after real user feedback.
 | ID | Status | Task | Description |
 | --- | --- | --- | --- |
 | P8.1 | Planned | Lazy modules | Register routes at boot and initialize providers on first use. Requires strong concurrency and lifecycle tests. |
-| P8.2 | Planned | Guard runtime and route metadata | Add DI-resolved guard factories and hand-written route guard metadata; auth, roles, and permissions remain user-owned policy. |
+| P8.2 | Done | App middleware and status tracking | Add `app.Use(...)`, middleware interfaces, `MiddlewareFunc`, route/controller middleware execution, and `Context.ResponseStatus()`. |
 | P8.3 | Planned | Import alias resolution | Add explicit `@GestImport` first, then existing Go imports. Defer package scan aliases until there is clear demand. |
-| P8.4 | Planned | Guard decorator MVP | Add `@Use(...)` only, resolving from existing Go imports or explicit `@GestImport`; do not add built-in `@Auth`, `@Roles`, or `@Permissions`. |
+| P8.4 | Done | Unified `@Use(...)` decorator | Add `@Use(...)` for middleware and guards, resolving from existing Go imports; classify providers by interface and do not add built-in `@Auth`, `@Roles`, or `@Permissions`. |
 | P8.5 | Planned | Typed handler performance checkpoint | Verify `gest.Handle(...)` and generated explicit adapters resolve signature shape once at route-definition time, with no per-request signature reflection. |
 | P8.6 | Planned | Streaming | Add stream and SSE helpers while preserving raw `http.ResponseWriter` escape hatches. |
 | P8.7 | Planned | WebSockets | Add WebSocket routes and socket abstractions as an optional module. |

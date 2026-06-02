@@ -207,7 +207,7 @@ func (c *UserController) Find(ctx *gest.Context) error { return nil }
 		t.Fatalf("ParseControllerRoutes returned error: %v", err)
 	}
 	assertDiagnostic(t, root, diagnostics, DiagnosticInvalidDecoratorSyntax, "users/controller.go", 7, "Use")
-	if !strings.Contains(diagnostics[0].Hint, "import the guard package") {
+	if !strings.Contains(diagnostics[0].Hint, "import the middleware or guard package") {
 		t.Fatalf("hint = %q, want import guidance", diagnostics[0].Hint)
 	}
 }

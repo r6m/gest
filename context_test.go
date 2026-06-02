@@ -194,8 +194,9 @@ func TestContextEscapeHatchesReturnNetHTTPObjects(t *testing.T) {
 	if context.RawRequest() != request {
 		t.Fatal("RawRequest() did not return original request")
 	}
-	if context.RawResponse() != recorder {
-		t.Fatal("RawResponse() did not return original response writer")
+	context.RawResponse().Header().Set("X-Test", "ok")
+	if got := recorder.Header().Get("X-Test"); got != "ok" {
+		t.Fatalf("RawResponse() did not write to original response writer, got header %q", got)
 	}
 	if context.Native() != request.Context() {
 		t.Fatal("Native() did not return request context")

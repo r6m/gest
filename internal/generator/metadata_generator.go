@@ -246,7 +246,7 @@ func writeRouteMetadata(buffer *bytes.Buffer, controller Controller, route Route
 	writeTypeMetadata(buffer, "Request", route.RequestType)
 	writeTypeMetadata(buffer, "Response", route.ResponseType)
 	writeStatusesMetadata(buffer, route.Statuses)
-	writeGuardMetadata(buffer, appendGuardReferences(controller.Guards, route.Guards))
+	writeRouteComponentMetadata(buffer, appendGuardReferences(controller.Guards, route.Guards))
 	writeRouteDescriptionMetadata(buffer, route)
 	buffer.WriteString("\t\t\t},\n")
 }
@@ -312,29 +312,16 @@ func writeStatusesMetadata(buffer *bytes.Buffer, statuses []int) {
 	buffer.WriteString("},\n")
 }
 
-func writeGuardMetadata(buffer *bytes.Buffer, guards []GuardReference) {
-	if len(guards) == 0 {
+func writeRouteComponentMetadata(buffer *bytes.Buffer, components []GuardReference) {
+	if len(components) == 0 {
 		return
 	}
-	buffer.WriteString("\t\t\t\tGuards: []gest.GuardFactory{\n")
-	for _, guard := range guards {
-		guardType := guard.Alias + "." + guard.Symbol
-		buffer.WriteString("\t\t\t\t\tfunc(container gest.Container) (gest.Guard, error) {\n")
-		buffer.WriteString("\t\t\t\t\t\tvalue, err := container.Resolve(gest.TokenOf[*")
-		buffer.WriteString(guardType)
-		buffer.WriteString("]())\n")
-		buffer.WriteString("\t\t\t\t\t\tif err != nil {\n")
-		buffer.WriteString("\t\t\t\t\t\t\treturn nil, err\n")
-		buffer.WriteString("\t\t\t\t\t\t}\n")
-		buffer.WriteString("\t\t\t\t\t\tguard, ok := value.(gest.Guard)\n")
-		buffer.WriteString("\t\t\t\t\t\tif !ok {\n")
-		buffer.WriteString("\t\t\t\t\t\t\treturn nil, gest.Internal(")
-		message := "resolved guard " + guardType + " does not implement gest.Guard"
-		buffer.WriteString(strconv.Quote(message))
-		buffer.WriteString(")\n")
-		buffer.WriteString("\t\t\t\t\t\t}\n")
-		buffer.WriteString("\t\t\t\t\t\treturn guard, nil\n")
-		buffer.WriteString("\t\t\t\t\t},\n")
+	buffer.WriteString("\t\t\t\tComponents: []gest.RouteComponentFactory{\n")
+	for _, component := range components {
+		componentType := component.Alias + "." + component.Symbol
+		buffer.WriteString("\t\t\t\t\tgest.ResolveRouteComponent[*")
+		buffer.WriteString(componentType)
+		buffer.WriteString("](),\n")
 	}
 	buffer.WriteString("\t\t\t\t},\n")
 }
