@@ -1,0 +1,9 @@
+project:
+  name: hello
+entry: ./cmd/api
+generate:
+  root: .
+  openapi: true
+build:
+  output: bin/hello
+  test: true

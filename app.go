@@ -1,6 +1,7 @@
 package gest
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,7 +25,9 @@ type App struct {
 	openapi       *openAPIConfig
 	bootLogs      bool
 	bootLogWriter io.Writer
+	lifecycle     []*providerState
 	built         bool
+	shutdown      bool
 }
 
 // New creates an application with default options.
@@ -112,6 +115,29 @@ func (a *App) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	handler.ServeHTTP(response, request)
 }
 
+// Shutdown runs application shutdown lifecycle hooks for initialized providers.
+func (a *App) Shutdown(ctx context.Context) error {
+	if a.shutdown {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if err := a.callShutdownHook(ctx, "BeforeApplicationShutdown"); err != nil {
+		return err
+	}
+	if err := a.callShutdownHook(ctx, "OnModuleDestroy"); err != nil {
+		return err
+	}
+	if err := a.callShutdownHook(ctx, "OnApplicationShutdown"); err != nil {
+		return err
+	}
+
+	a.shutdown = true
+	return nil
+}
+
 func (a *App) bootstrap() error {
 	if a.built {
 		return nil
@@ -130,7 +156,40 @@ func (a *App) bootstrap() error {
 		return err
 	}
 
+	controllers, err := a.resolveControllers(rootContainer)
+	if err != nil {
+		return err
+	}
+	a.lifecycle = initializedProviders(rootContainer)
+
+	if err := a.callStartupHook(context.Background(), "OnModuleInit"); err != nil {
+		return err
+	}
+
 	seenRoutes := make(map[string]struct{})
+	for _, controller := range controllers {
+		if err := a.registerController(controller, seenRoutes); err != nil {
+			return err
+		}
+	}
+	if err := a.registerOpenAPI(seenRoutes); err != nil {
+		return err
+	}
+	if err := a.callStartupHook(context.Background(), "OnApplicationBootstrap"); err != nil {
+		return err
+	}
+
+	a.built = true
+	a.logBoot("GEST boot duration: %s", time.Since(start).Round(time.Millisecond))
+	return nil
+}
+
+type controllerRegistration struct {
+	definition ControllerDefinition
+}
+
+func (a *App) resolveControllers(rootContainer *moduleContainer) ([]controllerRegistration, error) {
+	controllers := []controllerRegistration{}
 	seenProviders := make(map[*providerState]struct{})
 	for _, module := range allModuleContainers(rootContainer) {
 		a.logModuleBoot(module)
@@ -142,18 +201,14 @@ func (a *App) bootstrap() error {
 				continue
 			}
 			seenProviders[provider] = struct{}{}
-			if err := a.registerController(provider, seenRoutes); err != nil {
-				return err
+			registration, err := resolveController(provider)
+			if err != nil {
+				return nil, err
 			}
+			controllers = append(controllers, registration)
 		}
 	}
-	if err := a.registerOpenAPI(seenRoutes); err != nil {
-		return err
-	}
-
-	a.built = true
-	a.logBoot("GEST boot duration: %s", time.Since(start).Round(time.Millisecond))
-	return nil
+	return controllers, nil
 }
 
 func (a *App) registerOpenAPI(seenRoutes map[string]struct{}) error {
@@ -183,18 +238,24 @@ func (a *App) registerOpenAPI(seenRoutes map[string]struct{}) error {
 	return nil
 }
 
-func (a *App) registerController(provider *providerState, seenRoutes map[string]struct{}) error {
+func resolveController(provider *providerState) (controllerRegistration, error) {
 	value, err := provider.resolve(nil)
 	if err != nil {
-		return err
+		return controllerRegistration{}, err
 	}
 
 	controller, ok := value.(DescribedController)
 	if !ok {
-		return controllerMetadataError(provider)
+		return controllerRegistration{}, controllerMetadataError(provider)
 	}
 
-	definition := controller.GestController()
+	return controllerRegistration{
+		definition: controller.GestController(),
+	}, nil
+}
+
+func (a *App) registerController(controller controllerRegistration, seenRoutes map[string]struct{}) error {
+	definition := controller.definition
 	for _, route := range definition.Routes {
 		fullPath := joinRoutePath(definition.BasePath, route.Path)
 		key := strings.ToUpper(route.Method) + " " + fullPath
@@ -212,6 +273,24 @@ func (a *App) registerController(provider *providerState, seenRoutes map[string]
 		a.logBoot("GEST route: %s %s -> %s.%s", strings.ToUpper(route.Method), fullPath, definition.Name, route.Name)
 	}
 
+	return nil
+}
+
+func (a *App) callStartupHook(ctx context.Context, hook string) error {
+	for _, provider := range a.lifecycle {
+		if err := callLifecycleHook(ctx, provider, hook); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) callShutdownHook(ctx context.Context, hook string) error {
+	for i := len(a.lifecycle) - 1; i >= 0; i-- {
+		if err := callLifecycleHook(ctx, a.lifecycle[i], hook); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -246,6 +325,24 @@ func allModuleContainers(root *moduleContainer) []*moduleContainer {
 		modules = append(modules, allModuleContainers(imported)...)
 	}
 	return modules
+}
+
+func initializedProviders(root *moduleContainer) []*providerState {
+	providers := []*providerState{}
+	seen := make(map[*providerState]struct{})
+	for _, module := range allModuleContainers(root) {
+		for _, provider := range module.ownOrder {
+			if !provider.initialized {
+				continue
+			}
+			if _, ok := seen[provider]; ok {
+				continue
+			}
+			seen[provider] = struct{}{}
+			providers = append(providers, provider)
+		}
+	}
+	return providers
 }
 
 func joinRoutePath(basePath string, routePath string) string {

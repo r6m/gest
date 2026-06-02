@@ -1,5 +1,7 @@
 # Gest Framework Design Document
 
+For the current compiling example and CLI workflow, start with [Quickstart](QUICKSTART.md) and `examples/hello`.
+
 ## Purpose
 
 Gest is a Go web framework inspired by NestJS, designed to make modular backend development simple, explicit, and productive.
