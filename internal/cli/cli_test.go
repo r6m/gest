@@ -35,6 +35,7 @@ func TestRootHelp(t *testing.T) {
 		"gest g module",
 		"gest g controller",
 		"gest g service",
+		"gest g resource",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected help to contain %q, got:\n%s", want, output)
@@ -72,6 +73,7 @@ func TestCommandsRouteToHandlers(t *testing.T) {
 		{name: "g module", args: []string{"g", "module"}, want: "g module"},
 		{name: "g controller", args: []string{"g", "controller"}, want: "g controller"},
 		{name: "g service", args: []string{"g", "service"}, want: "g service"},
+		{name: "g resource", args: []string{"g", "resource"}, want: "g resource"},
 	}
 
 	for _, tt := range tests {
@@ -85,6 +87,7 @@ func TestCommandsRouteToHandlers(t *testing.T) {
 				GenerateModule:     recordHandler(&called, "g module"),
 				GenerateController: recordHandler(&called, "g controller"),
 				GenerateService:    recordHandler(&called, "g service"),
+				GenerateResource:   recordHandler(&called, "g resource"),
 			}
 
 			code := command.Run(context.Background(), tt.args, ioDiscard{}, ioDiscard{})

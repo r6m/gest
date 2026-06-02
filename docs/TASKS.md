@@ -331,8 +331,8 @@ Design rules:
 | --- | --- | --- | --- |
 | P9.1 | Done | Normalize nested generator paths | Centralize path parsing for `gest g module`, `g controller`, `g service`, and `g resource`. `projects/members` maps to `internal/projects/members`, type prefix `Members`, package `members`, and parent module `internal/projects/projects.module.go` when present. |
 | P9.2 | Done | Update module generator for nesting | Make `gest g module projects/members` create `members.module.go` in the nested folder and import it into the nearest parent module. Cover fallback behavior and warnings when no parent exists. |
-| P9.3 | Planned | Generate tests for controller/service | Update `gest g controller` and `gest g service` to create minimal compiling tests by default, with `--no-test` to skip. Tests should use ordinary Go testing and `gesttest` when HTTP behavior is generated. |
-| P9.4 | Planned | Add `gest g resource` | Generate module, controller, service, DTO, generated metadata or decorators, and tests for a complete simple REST-ish resource. Keep the template infrastructure-free and no auth/database assumptions. |
+| P9.3 | Done | Generate tests for controller/service | Update `gest g controller` and `gest g service` to create minimal compiling tests by default, with `--no-test` to skip. Tests should use ordinary Go testing and `gesttest` when HTTP behavior is generated. |
+| P9.4 | Done | Add `gest g resource` | Generate module, controller, service, DTO, generated metadata or decorators, and tests for a complete simple REST-ish resource. Keep the template infrastructure-free and no auth/database assumptions. |
 | P9.5 | Planned | Add generator checkpoint tests | Add end-to-end CLI tests for nested module generation, resource generation, force/dry-run/no-update flags, generated tests, `gest generate`, `go test ./...`, and `gest build`. |
 
 Exit criteria:

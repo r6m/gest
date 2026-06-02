@@ -28,6 +28,9 @@ func TestGenerateControllerCreatesControllerFile(t *testing.T) {
 		"type TeamController struct{}",
 		"func NewTeamController() *TeamController",
 	)
+	testContent := readFile(t, filepath.Join(root, "internal", "project", "team", "team.controller_test.go"))
+	assertOutputContains(t, stdout.String(), "CREATE internal/project/team/team.controller_test.go")
+	assertOutputContains(t, testContent, "func TestNewTeamController")
 }
 
 func TestGenerateServiceCreatesServiceFile(t *testing.T) {
@@ -49,6 +52,25 @@ func TestGenerateServiceCreatesServiceFile(t *testing.T) {
 		"type TeamService struct{}",
 		"func NewTeamService() *TeamService",
 	)
+	testContent := readFile(t, filepath.Join(root, "internal", "project", "team", "team.service_test.go"))
+	assertOutputContains(t, stdout.String(), "CREATE internal/project/team/team.service_test.go")
+	assertOutputContains(t, testContent, "func TestNewTeamService")
+}
+
+func TestGenerateControllerNoTestSkipsTestFile(t *testing.T) {
+	root := moduleFixture(t, nil)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "controller", "project/team", "--no-update-module", "--no-test"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%q", code, stderr.String())
+	}
+	assertFileMissing(t, filepath.Join(root, "internal", "project", "team", "team.controller_test.go"))
+	assertOutputExcludes(t, stdout.String(), "team.controller_test.go")
 }
 
 func TestGenerateControllerUpdatesModuleProviders(t *testing.T) {

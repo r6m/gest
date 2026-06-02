@@ -21,6 +21,7 @@ type CLI struct {
 	GenerateModule     Handler
 	GenerateController Handler
 	GenerateService    Handler
+	GenerateResource   Handler
 	WorkDir            string
 	Stdout             io.Writer
 	Stderr             io.Writer
@@ -36,6 +37,7 @@ func New() *CLI {
 	command.GenerateModule = command.runGenerateModule
 	command.GenerateController = command.runGenerateController
 	command.GenerateService = command.runGenerateService
+	command.GenerateResource = command.runGenerateResource
 	return command
 }
 
@@ -63,6 +65,9 @@ func (c *CLI) withDefaults(stdout, stderr io.Writer) *CLI {
 	}
 	if c.GenerateService == nil {
 		c.GenerateService = c.runGenerateService
+	}
+	if c.GenerateResource == nil {
+		c.GenerateResource = c.runGenerateResource
 	}
 	if c.WorkDir == "" {
 		if workDir, err := os.Getwd(); err == nil {
@@ -118,7 +123,7 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 
 func (c *CLI) runGenerateShortcut(ctx context.Context, args []string) error {
 	if len(args) == 0 || isHelp(args[0]) {
-		return errors.New("g requires a subcommand: module, controller, or service")
+		return errors.New("g requires a subcommand: module, controller, service, or resource")
 	}
 
 	switch args[0] {
@@ -128,6 +133,8 @@ func (c *CLI) runGenerateShortcut(ctx context.Context, args []string) error {
 		return runHandler(ctx, c.GenerateController, args[1:])
 	case "service":
 		return runHandler(ctx, c.GenerateService, args[1:])
+	case "resource":
+		return runHandler(ctx, c.GenerateResource, args[1:])
 	default:
 		return fmt.Errorf("unknown g subcommand %q", args[0])
 	}
@@ -165,5 +172,6 @@ Commands:
   gest g module      scaffold a module
   gest g controller  scaffold a controller
   gest g service     scaffold a service
+  gest g resource    scaffold a resource
   gest help          show this help
 `

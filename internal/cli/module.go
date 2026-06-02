@@ -48,6 +48,29 @@ func (c *CLI) runGenerateService(ctx context.Context, args []string) error {
 	return c.runGenerateComponent(ctx, args, componentService)
 }
 
+func (c *CLI) runGenerateResource(ctx context.Context, args []string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	options, err := parseResourceOptions(args)
+	if err != nil {
+		return err
+	}
+	resourcePath, err := parseGeneratorPath(options.path)
+	if err != nil {
+		return err
+	}
+
+	result, err := c.generateResource(resourcePath, options)
+	if err != nil {
+		return err
+	}
+	return writeModuleOutput(c.Stdout, result)
+}
+
 type moduleOptions struct {
 	path         string
 	dryRun       bool
@@ -92,6 +115,7 @@ type componentOptions struct {
 	dryRun       bool
 	force        bool
 	updateModule bool
+	test         bool
 }
 
 func (c *CLI) runGenerateComponent(ctx context.Context, args []string, kind componentKind) error {
@@ -118,7 +142,7 @@ func (c *CLI) runGenerateComponent(ctx context.Context, args []string, kind comp
 }
 
 func parseComponentOptions(args []string, kind componentKind) (componentOptions, error) {
-	options := componentOptions{updateModule: true}
+	options := componentOptions{updateModule: true, test: true}
 	paths := make([]string, 0, 1)
 	command := "g " + string(kind)
 	for _, arg := range args {
@@ -129,6 +153,8 @@ func parseComponentOptions(args []string, kind componentKind) (componentOptions,
 			options.force = true
 		case "--no-update-module":
 			options.updateModule = false
+		case "--no-test":
+			options.test = false
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return componentOptions{}, fmt.Errorf("unknown %s flag %q", command, arg)
@@ -138,6 +164,41 @@ func parseComponentOptions(args []string, kind componentKind) (componentOptions,
 	}
 	if len(paths) != 1 {
 		return componentOptions{}, fmt.Errorf("%s requires exactly one path", command)
+	}
+	options.path = paths[0]
+	return options, nil
+}
+
+type resourceOptions struct {
+	path         string
+	dryRun       bool
+	force        bool
+	updateParent bool
+	test         bool
+}
+
+func parseResourceOptions(args []string) (resourceOptions, error) {
+	options := resourceOptions{updateParent: true, test: true}
+	paths := make([]string, 0, 1)
+	for _, arg := range args {
+		switch arg {
+		case "--dry-run":
+			options.dryRun = true
+		case "--force":
+			options.force = true
+		case "--no-update-parent":
+			options.updateParent = false
+		case "--no-test":
+			options.test = false
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return resourceOptions{}, fmt.Errorf("unknown g resource flag %q", arg)
+			}
+			paths = append(paths, arg)
+		}
+	}
+	if len(paths) != 1 {
+		return resourceOptions{}, errors.New("g resource requires exactly one path")
 	}
 	options.path = paths[0]
 	return options, nil
@@ -156,26 +217,25 @@ type moduleGenerateResult struct {
 func (c *CLI) generateComponent(componentPath generatorPath, kind componentKind, options componentOptions) (moduleGenerateResult, error) {
 	result := moduleGenerateResult{dryRun: options.dryRun, parentSkipped: !options.updateModule}
 	target := componentPath.componentFilePath(c.WorkDir, kind)
-	relativeTarget := slashRel(c.WorkDir, target)
 	content, err := componentFileContent(componentPath, kind)
 	if err != nil {
 		return result, err
 	}
 
-	if _, err := os.Stat(target); err == nil && !options.force {
-		return result, fmt.Errorf("%s already exists; use --force to overwrite", relativeTarget)
-	} else if err != nil && !os.IsNotExist(err) {
-		return result, err
+	files := []generatedFileSpec{{path: target, content: content}}
+	if options.test {
+		testContent, err := componentTestFileContent(componentPath, kind)
+		if err != nil {
+			return result, err
+		}
+		files = append(files, generatedFileSpec{
+			path:    componentPath.componentTestFilePath(c.WorkDir, kind),
+			content: testContent,
+		})
 	}
 
-	result.created = append(result.created, relativeTarget)
-	if !options.dryRun {
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return result, err
-		}
-		if err := os.WriteFile(target, content, 0o644); err != nil {
-			return result, err
-		}
+	if err := c.writeGeneratedFiles(&result, files, options.force); err != nil {
+		return result, err
 	}
 
 	if !options.updateModule {
@@ -205,6 +265,35 @@ func (c *CLI) generateComponent(componentPath generatorPath, kind componentKind,
 		result.warnings = append(result.warnings, "module already provides "+providerCall(componentPath, kind))
 	}
 	return result, nil
+}
+
+type generatedFileSpec struct {
+	path    string
+	content []byte
+}
+
+func (c *CLI) writeGeneratedFiles(result *moduleGenerateResult, files []generatedFileSpec, force bool) error {
+	for _, file := range files {
+		relative := slashRel(c.WorkDir, file.path)
+		if _, err := os.Stat(file.path); err == nil && !force {
+			return fmt.Errorf("%s already exists; use --force to overwrite", relative)
+		} else if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		result.created = append(result.created, relative)
+	}
+	if result.dryRun {
+		return nil
+	}
+	for _, file := range files {
+		if err := os.MkdirAll(filepath.Dir(file.path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(file.path, file.content, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *CLI) generateModule(modulePath generatorPath, options moduleOptions) (moduleGenerateResult, error) {
@@ -257,6 +346,45 @@ func (c *CLI) generateModule(modulePath generatorPath, options moduleOptions) (m
 		result.updated = append(result.updated, relativeParent)
 	} else {
 		result.warnings = append(result.warnings, "parent module already imports "+moduleCall(modulePath))
+	}
+	return result, nil
+}
+
+func (c *CLI) generateResource(resourcePath generatorPath, options resourceOptions) (moduleGenerateResult, error) {
+	result := moduleGenerateResult{dryRun: options.dryRun, parentSkipped: !options.updateParent}
+	files, err := resourceFiles(c.WorkDir, resourcePath, options.test)
+	if err != nil {
+		return result, err
+	}
+	if err := c.writeGeneratedFiles(&result, files, options.force); err != nil {
+		return result, err
+	}
+
+	if !options.updateParent {
+		return result, nil
+	}
+
+	parent := resourcePath.findParentModule(c.WorkDir)
+	if parent == "" {
+		result.noParent = true
+		result.warnings = append(result.warnings, "parent module not found")
+		result.hints = append(result.hints, "add "+moduleCall(resourcePath)+" manually")
+		return result, nil
+	}
+
+	relativeParent := slashRel(c.WorkDir, parent)
+	if options.dryRun {
+		result.updated = append(result.updated, relativeParent)
+		return result, nil
+	}
+	updated, err := updateParentModule(parent, c.WorkDir, resourcePath)
+	if err != nil {
+		return result, err
+	}
+	if updated {
+		result.updated = append(result.updated, relativeParent)
+	} else {
+		result.warnings = append(result.warnings, "parent module already imports "+moduleCall(resourcePath))
 	}
 	return result, nil
 }
@@ -329,6 +457,14 @@ func (p generatorPath) componentFilePath(workDir string, kind componentKind) str
 	return filepath.Join(workDir, "internal", filepath.Join(p.parts...), p.packageName+"."+string(kind)+".go")
 }
 
+func (p generatorPath) componentTestFilePath(workDir string, kind componentKind) string {
+	return filepath.Join(workDir, "internal", filepath.Join(p.parts...), p.packageName+"."+string(kind)+"_test.go")
+}
+
+func (p generatorPath) dtoFilePath(workDir string) string {
+	return filepath.Join(workDir, "internal", filepath.Join(p.parts...), p.packageName+".dto.go")
+}
+
 func componentFileContent(componentPath generatorPath, kind componentKind) ([]byte, error) {
 	var source string
 	switch kind {
@@ -354,6 +490,215 @@ func New%sService() *%sService {
 	default:
 		return nil, fmt.Errorf("unknown component kind %q", kind)
 	}
+	return format.Source([]byte(source))
+}
+
+func componentTestFileContent(componentPath generatorPath, kind componentKind) ([]byte, error) {
+	var source string
+	switch kind {
+	case componentController:
+		source = fmt.Sprintf(`package %s
+
+import "testing"
+
+func TestNew%sController(t *testing.T) {
+	controller := New%sController()
+	if controller == nil {
+		t.Fatal("controller is nil")
+	}
+}
+`, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix)
+	case componentService:
+		source = fmt.Sprintf(`package %s
+
+import "testing"
+
+func TestNew%sService(t *testing.T) {
+	service := New%sService()
+	if service == nil {
+		t.Fatal("service is nil")
+	}
+}
+`, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix)
+	default:
+		return nil, fmt.Errorf("unknown component kind %q", kind)
+	}
+	return format.Source([]byte(source))
+}
+
+func resourceFiles(workDir string, resourcePath generatorPath, includeTests bool) ([]generatedFileSpec, error) {
+	moduleContent, err := resourceModuleFileContent(resourcePath)
+	if err != nil {
+		return nil, err
+	}
+	serviceContent, err := resourceServiceFileContent(resourcePath)
+	if err != nil {
+		return nil, err
+	}
+	controllerContent, err := resourceControllerFileContent(resourcePath)
+	if err != nil {
+		return nil, err
+	}
+	dtoContent, err := resourceDTOFileContent(resourcePath)
+	if err != nil {
+		return nil, err
+	}
+	files := []generatedFileSpec{
+		{path: resourcePath.moduleFilePath(workDir), content: moduleContent},
+		{path: resourcePath.componentFilePath(workDir, componentService), content: serviceContent},
+		{path: resourcePath.componentFilePath(workDir, componentController), content: controllerContent},
+		{path: resourcePath.dtoFilePath(workDir), content: dtoContent},
+	}
+	if includeTests {
+		serviceTest, err := resourceServiceTestFileContent(resourcePath)
+		if err != nil {
+			return nil, err
+		}
+		controllerTest, err := resourceControllerTestFileContent(resourcePath)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files,
+			generatedFileSpec{path: resourcePath.componentTestFilePath(workDir, componentService), content: serviceTest},
+			generatedFileSpec{path: resourcePath.componentTestFilePath(workDir, componentController), content: controllerTest},
+		)
+	}
+	return files, nil
+}
+
+func resourceModuleFileContent(resourcePath generatorPath) ([]byte, error) {
+	source := fmt.Sprintf(`package %s
+
+import "github.com/r6m/gest"
+
+type Options struct{}
+
+func Module(options Options) gest.Module {
+	return gest.NewModule(gest.ModuleConfig{
+		Name: %q,
+		Providers: gest.Providers(
+			gest.Provide(New%sService),
+			gest.Controller(New%sController),
+		),
+	})
+}
+`, resourcePath.packageName, resourcePath.moduleName, resourcePath.typePrefix, resourcePath.typePrefix)
+	return format.Source([]byte(source))
+}
+
+func resourceServiceFileContent(resourcePath generatorPath) ([]byte, error) {
+	source := fmt.Sprintf(`package %s
+
+type %s struct {
+	ID   string
+	Name string
+}
+
+type %sService struct{}
+
+func New%sService() *%sService {
+	return &%sService{}
+}
+
+func (s *%sService) List() []%s {
+	return []%s{
+		{ID: "sample", Name: "Sample %s"},
+	}
+}
+`, resourcePath.packageName, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix)
+	return format.Source([]byte(source))
+}
+
+func resourceControllerFileContent(resourcePath generatorPath) ([]byte, error) {
+	source := fmt.Sprintf(`package %s
+
+import "github.com/r6m/gest"
+
+// @Controller("/%s")
+type %sController struct {
+	service *%sService
+}
+
+func New%sController(service *%sService) *%sController {
+	return &%sController{service: service}
+}
+
+// @Get("/")
+func (c *%sController) List(ctx *gest.Context) (*List%sResponse, error) {
+	items := c.service.List()
+	response := List%sResponse{
+		Items: make([]%sResponse, 0, len(items)),
+	}
+	for _, item := range items {
+		response.Items = append(response.Items, %sResponse{
+			ID:   item.ID,
+			Name: item.Name,
+		})
+	}
+	return &response, nil
+}
+`, resourcePath.packageName, routePath(resourcePath), resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix)
+	return format.Source([]byte(source))
+}
+
+func resourceDTOFileContent(resourcePath generatorPath) ([]byte, error) {
+	source := fmt.Sprintf(`package %s
+
+type %sResponse struct {
+	ID   string `+"`json:\"id\"`"+`
+	Name string `+"`json:\"name\"`"+`
+}
+
+type List%sResponse struct {
+	Items []%sResponse `+"`json:\"items\"`"+`
+}
+`, resourcePath.packageName, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix)
+	return format.Source([]byte(source))
+}
+
+func resourceServiceTestFileContent(resourcePath generatorPath) ([]byte, error) {
+	source := fmt.Sprintf(`package %s
+
+import "testing"
+
+func Test%sServiceListReturnsSample(t *testing.T) {
+	service := New%sService()
+	items := service.List()
+	if len(items) != 1 {
+		t.Fatalf("items length = %%d, want 1", len(items))
+	}
+	if items[0].ID == "" || items[0].Name == "" {
+		t.Fatalf("item = %%#v, want populated sample", items[0])
+	}
+}
+`, resourcePath.packageName, resourcePath.typePrefix, resourcePath.typePrefix)
+	return format.Source([]byte(source))
+}
+
+func resourceControllerTestFileContent(resourcePath generatorPath) ([]byte, error) {
+	source := fmt.Sprintf(`package %s
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/r6m/gest"
+)
+
+func Test%sControllerList(t *testing.T) {
+	controller := New%sController(New%sService())
+	ctx := gest.NewContext(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+
+	response, err := controller.List(ctx)
+	if err != nil {
+		t.Fatalf("List returned error: %%v", err)
+	}
+	if response == nil || len(response.Items) != 1 {
+		t.Fatalf("response = %%#v, want one item", response)
+	}
+}
+`, resourcePath.packageName, resourcePath.typePrefix, resourcePath.typePrefix, resourcePath.typePrefix)
 	return format.Source([]byte(source))
 }
 
