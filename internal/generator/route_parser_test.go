@@ -3,6 +3,7 @@ package generator
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -90,6 +91,124 @@ func (c *UserController) Find(ctx *gest.Context) error { return nil }
 	}
 	if route.Description != "Returns a user by ID" {
 		t.Fatalf("Description = %q, want Returns a user by ID", route.Description)
+	}
+}
+
+func TestParseControllerRoutesRouteLevelUseGuard(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+import (
+	"github.com/r6m/gest"
+	"example.test/app/auth"
+)
+
+// @Controller("/users")
+type UserController struct{}
+
+// @Get("/")
+// @Use(auth.JWTGuard)
+func (c *UserController) List(ctx *gest.Context) error { return nil }
+`,
+	})
+
+	controllers, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
+	if err != nil {
+		t.Fatalf("ParseControllerRoutes returned error: %v", err)
+	}
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v, want none", diagnostics)
+	}
+	guards := controllers[0].Routes[0].Guards
+	if len(guards) != 1 {
+		t.Fatalf("guards length = %d, want 1", len(guards))
+	}
+	if guards[0].Alias != "auth" || guards[0].Symbol != "JWTGuard" || guards[0].ImportPath != "example.test/app/auth" {
+		t.Fatalf("guard = %#v, want auth.JWTGuard", guards[0])
+	}
+}
+
+func TestParseControllerRoutesControllerLevelUseGuard(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+import (
+	"github.com/r6m/gest"
+	"example.test/app/auth"
+)
+
+// @Controller("/users")
+// @Use(auth.JWTGuard)
+type UserController struct{}
+
+// @Get("/")
+func (c *UserController) List(ctx *gest.Context) error { return nil }
+`,
+	})
+
+	controllers, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
+	if err != nil {
+		t.Fatalf("ParseControllerRoutes returned error: %v", err)
+	}
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v, want none", diagnostics)
+	}
+	guards := controllers[0].Guards
+	if len(guards) != 1 {
+		t.Fatalf("controller guards length = %d, want 1", len(guards))
+	}
+	if guards[0].Alias != "auth" || guards[0].Symbol != "JWTGuard" {
+		t.Fatalf("guard = %#v, want auth.JWTGuard", guards[0])
+	}
+}
+
+func TestParseControllerRoutesUseGuardResolvesExistingImportAlias(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+import (
+	"github.com/r6m/gest"
+	security "example.test/app/auth"
+)
+
+// @Controller("/users")
+type UserController struct{}
+
+// @Get("/")
+// @Use(security.JWTGuard)
+func (c *UserController) List(ctx *gest.Context) error { return nil }
+`,
+	})
+
+	controllers, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
+	if err != nil {
+		t.Fatalf("ParseControllerRoutes returned error: %v", err)
+	}
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v, want none", diagnostics)
+	}
+	guard := controllers[0].Routes[0].Guards[0]
+	if guard.Alias != "security" || guard.ImportPath != "example.test/app/auth" {
+		t.Fatalf("guard = %#v, want aliased auth import", guard)
+	}
+}
+
+func TestParseControllerRoutesUseGuardUnresolvedAliasDiagnostic(t *testing.T) {
+	root := routeErrorFixture(t, `// @Get("/")
+// @Use(auth.JWTGuard)
+func (c *UserController) Find(ctx *gest.Context) error { return nil }
+`)
+
+	_, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
+	if err != nil {
+		t.Fatalf("ParseControllerRoutes returned error: %v", err)
+	}
+	assertDiagnostic(t, root, diagnostics, DiagnosticInvalidDecoratorSyntax, "users/controller.go", 7, "Use")
+	if !strings.Contains(diagnostics[0].Hint, "import the guard package") {
+		t.Fatalf("hint = %q, want import guidance", diagnostics[0].Hint)
 	}
 }
 

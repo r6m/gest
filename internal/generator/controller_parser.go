@@ -20,6 +20,7 @@ type Controller struct {
 	File     string
 	Line     int
 	Column   int
+	Guards   []GuardReference
 	Routes   []Route
 }
 
@@ -33,9 +34,20 @@ type Route struct {
 	Statuses     []int
 	Summary      string
 	Description  string
+	Guards       []GuardReference
 	File         string
 	Line         int
 	Column       int
+}
+
+// GuardReference describes a parsed @Use(pkg.Symbol) guard reference.
+type GuardReference struct {
+	Alias      string
+	Symbol     string
+	ImportPath string
+	File       string
+	Line       int
+	Column     int
 }
 
 // ParseControllers parses controller-level MVP decorators from scanned packages.
@@ -99,6 +111,7 @@ func parseControllerRoutesFile(pkg Package, file string) ([]Controller, []Diagno
 	}
 
 	controllers, diagnostics := parseControllersFromAST(pkg, file, fileSet, parsed, false)
+	imports := importAliases(parsed)
 	controllersByType := make(map[string]*Controller)
 	for i := range controllers {
 		controllersByType[controllers[i].TypeName] = &controllers[i]
@@ -125,7 +138,7 @@ func parseControllerRoutesFile(pkg Package, file string) ([]Controller, []Diagno
 			continue
 		}
 
-		route, routeDiagnostics := parseRouteDecorators(function.Name.Name, decorators)
+		route, routeDiagnostics := parseRouteDecorators(function.Name.Name, decorators, imports)
 		diagnostics = append(diagnostics, routeDiagnostics...)
 		if route != nil {
 			signature, ok := validateHandlerSignature(function)
@@ -175,8 +188,10 @@ func parseControllersFromAST(pkg Package, file string, fileSet *token.FileSet, p
 			continue
 		}
 
+		imports := importAliases(parsed)
 		var controller *Controller
 		var tag string
+		guards := []GuardReference{}
 		for _, decorator := range decorators {
 			switch decorator.Name {
 			case "Controller":
@@ -197,6 +212,7 @@ func parseControllersFromAST(pkg Package, file string, fileSet *token.FileSet, p
 					Line:     decorator.Line,
 					Column:   decorator.Column,
 					Tag:      tag,
+					Guards:   guards,
 				}
 			case "Tag":
 				parsedTag, ok := parseSingleStringArgument(decorator.Raw)
@@ -217,6 +233,19 @@ func parseControllersFromAST(pkg Package, file string, fileSet *token.FileSet, p
 					}
 				}
 				controller.Tag = parsedTag
+			case "Use":
+				guard, ok := parseUseGuard(decorator, imports, &diagnostics)
+				if ok {
+					guards = append(guards, guard)
+					if controller == nil {
+						controller = &Controller{
+							Package:  pkg,
+							TypeName: typeName,
+							File:     file,
+						}
+					}
+					controller.Guards = append(controller.Guards, guard)
+				}
 			default:
 				diagnostics = append(diagnostics, unknownDecoratorDiagnostic(decorator))
 			}
@@ -255,7 +284,7 @@ func invalidTargetDiagnosticsForDeclaration(fileSet *token.FileSet, declaration 
 	return diagnostics
 }
 
-func parseRouteDecorators(handlerName string, decorators []decorator) (*Route, []Diagnostic) {
+func parseRouteDecorators(handlerName string, decorators []decorator, imports map[string]string) (*Route, []Diagnostic) {
 	route := &Route{
 		HandlerName: handlerName,
 		Statuses:    make([]int, 0),
@@ -335,6 +364,12 @@ func parseRouteDecorators(handlerName string, decorators []decorator) (*Route, [
 			}
 			route.Description = description
 			hasRoute = true
+		case decorator.Name == "Use":
+			guard, ok := parseUseGuard(decorator, imports, &diagnostics)
+			if ok {
+				route.Guards = append(route.Guards, guard)
+				hasRoute = true
+			}
 		case isControllerDecorator(decorator.Name):
 			continue
 		default:
@@ -348,6 +383,31 @@ func parseRouteDecorators(handlerName string, decorators []decorator) (*Route, [
 		return nil, diagnostics
 	}
 	return route, diagnostics
+}
+
+func parseUseGuard(decorator decorator, imports map[string]string, diagnostics *[]Diagnostic) (GuardReference, bool) {
+	alias, symbol, ok := parseSingleSelectorArgument(decorator.Raw)
+	if !ok {
+		*diagnostics = append(*diagnostics, invalidSyntaxDiagnostic(
+			decorator,
+			"@Use requires a single imported guard selector argument",
+			"use @Use(auth.JWTGuard)",
+		))
+		return GuardReference{}, false
+	}
+	importPath, ok := imports[alias]
+	if !ok {
+		*diagnostics = append(*diagnostics, unresolvedGuardAliasDiagnostic(decorator, alias))
+		return GuardReference{}, false
+	}
+	return GuardReference{
+		Alias:      alias,
+		Symbol:     symbol,
+		ImportPath: importPath,
+		File:       decorator.File,
+		Line:       decorator.Line,
+		Column:     decorator.Column,
+	}, true
 }
 
 type decorator struct {
@@ -431,6 +491,65 @@ func parseSingleIntArgument(raw string) (int, bool) {
 		return 0, false
 	}
 	return value, true
+}
+
+func parseSingleSelectorArgument(raw string) (string, string, bool) {
+	open := strings.Index(raw, "(")
+	close := strings.LastIndex(raw, ")")
+	if open == -1 || close != len(raw)-1 || close <= open {
+		return "", "", false
+	}
+	argument := strings.TrimSpace(raw[open+1 : close])
+	parts := strings.Split(argument, ".")
+	if len(parts) != 2 || !isIdentifier(parts[0]) || !isIdentifier(parts[1]) {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+func isIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, r := range value {
+		if index == 0 {
+			if r != '_' && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') {
+				return false
+			}
+			continue
+		}
+		if r != '_' && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func importAliases(file *ast.File) map[string]string {
+	imports := make(map[string]string)
+	for _, spec := range file.Imports {
+		if spec.Path == nil {
+			continue
+		}
+		importPath, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			continue
+		}
+		if spec.Name != nil {
+			if spec.Name.Name == "." || spec.Name.Name == "_" {
+				continue
+			}
+			imports[spec.Name.Name] = importPath
+			continue
+		}
+		imports[defaultImportAlias(importPath)] = importPath
+	}
+	return imports
+}
+
+func defaultImportAlias(importPath string) string {
+	base := filepath.Base(importPath)
+	return strings.TrimSuffix(base, ".go")
 }
 
 func validateHandlerSignature(function *ast.FuncDecl) (handlerSignature, bool) {
@@ -594,7 +713,7 @@ func exprString(expression ast.Expr) string {
 }
 
 func isControllerDecorator(name string) bool {
-	return name == "Controller" || name == "Tag"
+	return name == "Controller" || name == "Tag" || name == "Use"
 }
 
 func isHTTPMethodDecorator(name string) bool {
@@ -616,7 +735,7 @@ func isRouteMetadataDecorator(name string) bool {
 }
 
 func isRouteRelevantDecorator(name string) bool {
-	return isHTTPMethodDecorator(name) || isRouteMetadataDecorator(name) || isDeferredDecorator(name)
+	return isHTTPMethodDecorator(name) || isRouteMetadataDecorator(name) || name == "Use" || isDeferredDecorator(name)
 }
 
 func hasRouteRelevantDecorator(decorators []decorator) bool {
@@ -630,7 +749,7 @@ func hasRouteRelevantDecorator(decorators []decorator) bool {
 
 func isDeferredDecorator(name string) bool {
 	switch name {
-	case "Auth", "Public", "Roles", "Permissions", "Use", "Cache", "Throttle", "Stream", "WebSocket", "Processor", "Cron":
+	case "Auth", "Public", "Roles", "Permissions", "Cache", "Throttle", "Stream", "WebSocket", "Processor", "Cron":
 		return true
 	default:
 		return false
@@ -671,7 +790,7 @@ func unknownDecoratorDiagnostic(decorator decorator) Diagnostic {
 		Severity: SeverityError,
 		Code:     DiagnosticUnknownDecorator,
 		Message:  "unknown decorator @" + decorator.Name,
-		Hint:     "supported MVP decorators are @Controller, @Tag, @Get, @Post, @Put, @Patch, @Delete, @Status, @Summary, and @Description",
+		Hint:     "supported MVP decorators are @Controller, @Tag, @Use, @Get, @Post, @Put, @Patch, @Delete, @Status, @Summary, and @Description",
 		File:     decorator.File,
 		Line:     decorator.Line,
 		Column:   decorator.Column,
@@ -684,7 +803,20 @@ func unknownRouteDecoratorDiagnostic(decorator decorator) Diagnostic {
 		Severity: SeverityError,
 		Code:     DiagnosticUnknownDecorator,
 		Message:  "unknown or deferred route decorator @" + decorator.Name,
-		Hint:     "supported MVP route decorators are @Get, @Post, @Put, @Patch, @Delete, @Status, @Summary, and @Description",
+		Hint:     "supported MVP route decorators are @Use, @Get, @Post, @Put, @Patch, @Delete, @Status, @Summary, and @Description",
+		File:     decorator.File,
+		Line:     decorator.Line,
+		Column:   decorator.Column,
+		Target:   decorator.Name,
+	}
+}
+
+func unresolvedGuardAliasDiagnostic(decorator decorator, alias string) Diagnostic {
+	return Diagnostic{
+		Severity: SeverityError,
+		Code:     DiagnosticInvalidDecoratorSyntax,
+		Message:  "unresolved guard import alias " + alias,
+		Hint:     "import the guard package in this controller file; package scanning and hidden registries are not used",
 		File:     decorator.File,
 		Line:     decorator.Line,
 		Column:   decorator.Column,

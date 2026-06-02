@@ -234,6 +234,100 @@ func (c *UserController) Find(ctx *gest.Context, req *FindUserRequest) (*FindUse
 	assertContains(t, content, "Statuses: []int{404, 202, 201},")
 }
 
+func TestGenerateMetadataFilesRouteLevelGuardFactory(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"auth/auth.go": `package auth
+
+type JWTGuard struct{}
+`,
+		"users/controller.go": `package users
+
+import (
+	"github.com/r6m/gest"
+	"example.test/app/auth"
+)
+
+// @Controller("/users")
+type UserController struct{}
+
+// @Get("/")
+// @Use(auth.JWTGuard)
+func (c *UserController) List(ctx *gest.Context) error { return nil }
+`,
+	})
+
+	files := generateFixtureMetadata(t, root)
+	content := string(files[0].Content)
+	assertContains(t, content, `"example.test/app/auth"`)
+	assertContains(t, content, "Guards: []gest.GuardFactory{")
+	assertContains(t, content, "container.Resolve(gest.TokenOf[*auth.JWTGuard]())")
+	assertContains(t, content, "guard, ok := value.(gest.Guard)")
+	assertNoHiddenRegistry(t, files[0].Content)
+}
+
+func TestGenerateMetadataFilesControllerLevelGuardAppliesToRoutes(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"auth/auth.go": `package auth
+
+type JWTGuard struct{}
+`,
+		"users/controller.go": `package users
+
+import (
+	"github.com/r6m/gest"
+	"example.test/app/auth"
+)
+
+// @Controller("/users")
+// @Use(auth.JWTGuard)
+type UserController struct{}
+
+// @Get("/")
+func (c *UserController) List(ctx *gest.Context) error { return nil }
+
+// @Post("/")
+func (c *UserController) Create(ctx *gest.Context) error { return nil }
+`,
+	})
+
+	files := generateFixtureMetadata(t, root)
+	content := string(files[0].Content)
+	if strings.Count(content, "container.Resolve(gest.TokenOf[*auth.JWTGuard]())") != 2 {
+		t.Fatalf("generated content:\n%s\nwant controller guard factory on both routes", content)
+	}
+}
+
+func TestGenerateMetadataFilesUsesExistingImportAliasForGuard(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"auth/auth.go": `package auth
+
+type JWTGuard struct{}
+`,
+		"users/controller.go": `package users
+
+import (
+	"github.com/r6m/gest"
+	security "example.test/app/auth"
+)
+
+// @Controller("/users")
+type UserController struct{}
+
+// @Get("/")
+// @Use(security.JWTGuard)
+func (c *UserController) List(ctx *gest.Context) error { return nil }
+`,
+	})
+
+	files := generateFixtureMetadata(t, root)
+	content := string(files[0].Content)
+	assertContains(t, content, `security "example.test/app/auth"`)
+	assertContains(t, content, "container.Resolve(gest.TokenOf[*security.JWTGuard]())")
+}
+
 func TestGenerateMetadataFilesContextErrorHandlerUsesJSONWrapper(t *testing.T) {
 	root := newFixture(t, map[string]string{
 		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
@@ -286,6 +380,118 @@ func (c *UserController) List(ctx *gest.Context) error { return nil }
 // @Status(404)
 func (c *UserController) Find(ctx *gest.Context, req *FindUserRequest) (*FindUserResponse, error) {
 	return &FindUserResponse{ID: req.ID}, nil
+}
+`,
+	})
+	files := generateFixtureMetadata(t, root)
+	results, diagnostics := WriteGeneratedFiles(files)
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v, want none", diagnostics)
+	}
+	if len(results) != 1 || !results[0].Written {
+		t.Fatalf("results = %#v, want one written file", results)
+	}
+
+	runGoTest(t, root)
+}
+
+func TestGenerateMetadataFilesGuardOutputCompilesAndRuns(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n\nrequire (\n\tgithub.com/go-chi/chi/v5 v5.3.0\n\tgithub.com/r6m/gest v0.0.0\n)\n\nreplace github.com/r6m/gest => " + filepath.ToSlash(projectRoot(t)) + "\n",
+		"go.sum": "github.com/go-chi/chi/v5 v5.3.0 h1:halUjDxhshgXHMrao5bB8eNBXo/rnzwr8m5m36glehM=\n" +
+			"github.com/go-chi/chi/v5 v5.3.0/go.mod h1:R+tYY2hNuVUUjxoPtqUdgBqevM9s9njzkTLutVsOCto=\n",
+		"auth/auth.go": `package auth
+
+import "github.com/r6m/gest"
+
+type Marker struct {
+	Value string
+}
+
+type JWTGuard struct {
+	marker *Marker
+}
+
+func NewMarker() *Marker {
+	return &Marker{Value: "generated guard"}
+}
+
+func NewJWTGuard(marker *Marker) *JWTGuard {
+	return &JWTGuard{marker: marker}
+}
+
+func (g *JWTGuard) CanActivate(ctx *gest.Context) error {
+	ctx.Set("marker", g.marker.Value)
+	return nil
+}
+`,
+		"users/controller.go": `package users
+
+import (
+	"net/http"
+
+	"github.com/r6m/gest"
+	"example.test/app/auth"
+)
+
+// @Controller("/users")
+// @Use(auth.JWTGuard)
+type UserController struct{}
+
+var _ *auth.JWTGuard
+
+func NewUserController() *UserController {
+	return &UserController{}
+}
+
+// @Get("/")
+func (c *UserController) List(ctx *gest.Context) error {
+	value, _ := ctx.Get("marker")
+	return ctx.JSON(http.StatusOK, map[string]any{"marker": value})
+}
+`,
+		"users/module.go": `package users
+
+import (
+	"example.test/app/auth"
+	"github.com/r6m/gest"
+)
+
+func Module() gest.Module {
+	return gest.NewModule(gest.ModuleConfig{
+		Name: "Users",
+		Providers: gest.Providers(
+			gest.Provide(auth.NewMarker),
+			gest.Provide(auth.NewJWTGuard),
+			gest.Controller(NewUserController),
+		),
+	})
+}
+`,
+		"app_test.go": `package app_test
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"example.test/app/users"
+	"github.com/r6m/gest"
+)
+
+func TestGeneratedGuardRuns(t *testing.T) {
+	app := gest.New()
+	app.Import(users.Module())
+
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/users/", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if got := recorder.Body.String(); got != "{\"marker\":\"generated guard\"}\n" {
+		t.Fatalf("body = %q, want generated guard marker", got)
+	}
 }
 `,
 	})
