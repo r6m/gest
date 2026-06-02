@@ -242,28 +242,44 @@ Exit criteria:
 
 ## Phase 7: Optional Official Modules
 
-Goal: add infrastructure modules only after the extension model is proven.
+Goal: add optional official modules only after the extension model is proven.
+
+Design rules:
+
+- Official modules are conveniences, not framework assumptions.
+- Core runtime must not import official module packages.
+- No global module magic in v0. Use explicit module imports and constructor injection.
+- No built-in database module or ORM abstraction.
+- No cache/throttle/events in this phase.
+- App-specific config should be represented by user-owned structs loaded and provided through DI.
+- Validation module should provide a concrete validator, but app installation may stay explicit with `gest.WithValidator(...)` if automatic installation would require special runtime hooks.
 
 | ID | Status | Task | Description |
 | --- | --- | --- | --- |
-| P7.1 | Planned | Config module | Load environment files and expose typed config helpers. |
-| P7.2 | Planned | Logger module | Provide a simple structured logger integration and app boot log integration. |
-| P7.3 | Planned | Validation module | Package validator integration as an optional module. |
-| P7.4 | Planned | Health module | Add `/health`, `/health/live`, and `/health/ready`. |
-| P7.5 | Planned | JWT/auth modules | Add optional JWT helpers and guard conventions after guard metadata exists. |
-| P7.6 | Planned | Cache/throttle/events modules | Add only after module ergonomics and DI override patterns are proven. |
+| P7.1 | Planned | Config module | Add `modules/config` with `.env` loading, typed getters, and user-owned struct loading through DI. |
+| P7.2 | Planned | Logger module | Add `modules/logger` using `log/slog`; provide `*slog.Logger` through DI without coupling boot logs to the module. |
+| P7.3 | Planned | Validation module | Add `modules/validation` with a concrete `gest.Validator` implementation and explicit app installation if needed. |
+| P7.4 | Planned | Health module | Add `modules/health` with `/health`, `/health/live`, and `/health/ready` returning `{"status":"ok"}`. |
+| P7.5 | Planned | JWT module | Add `modules/jwt` for signing/verifying tokens with explicit `Secret` or `SecretFromEnv`; no database or user model assumptions. |
+| P7.6 | Planned | Auth module | Add a conservative `modules/auth` layer for auth helpers/guard conventions without user database assumptions. |
+| P7.7 | Planned | Optional modules checkpoint | Verify config/logger/validation/health/jwt/auth are optional, core runtime imports none of them, and an example app can use them together. |
 
 Explicitly out of scope:
 
 - Built-in database module.
 - Built-in ORM abstraction.
 - First-party Fiber adapter.
+- Cache/throttle/events modules.
+- Queue/scheduler modules.
+- Global module behavior.
 
 Exit criteria:
 
 - Each official module is optional.
 - Users can replace official modules with their own modules without special cases.
 - Each optional module has unit tests and at least one integration-style usage test when it exposes runtime behavior.
+- An example or fixture app imports the Phase 7 modules together where practical.
+- Core runtime imports no `modules/...` package.
 - `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
 ## Phase 8: Advanced Runtime

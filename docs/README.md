@@ -28,10 +28,9 @@ Gest should feel like this:
 
 ```go
 app.Import(
-	config.Module(config.Options{Global: true}),
+	config.Module(config.Options{}),
 	auth.Module(auth.Options{
-		JWTSecretFromConfig: "JWT_SECRET",
-		Global:              true,
+		JWTSecretFromEnv: "JWT_SECRET",
 	}),
 	reports.Module(reports.Options{}),
 )
@@ -254,17 +253,13 @@ func Module() gest.Module {
 		Imports: gest.Imports(
 			config.Module(config.Options{
 				EnvFiles: []string{".env"},
-				Global:   true,
 			}),
 
-			logger.Module(logger.Options{
-				Global: true,
-			}),
+			logger.Module(logger.Options{}),
 
 			auth.Module(auth.Options{
-				JWTSecretFromConfig: "JWT_SECRET",
+				JWTSecretFromEnv: "JWT_SECRET",
 				AccessTTL:          time.Hour,
-				Global:             true,
 			}),
 
 			reports.Module(reports.Options{}),
@@ -1064,20 +1059,18 @@ import (
 )
 
 type Options struct {
-	JWTSecretFromConfig string
+	JWTSecretFromEnv    string
 	AccessTTL          time.Duration
-	Global             bool
 }
 
 func Module(options Options) gest.Module {
 	return gest.NewModule(gest.ModuleConfig{
-		Name:   "auth",
-		Global: options.Global,
+		Name: "auth",
 
 		Imports: gest.Imports(
 			jwt.Module(jwt.Options{
-				SecretFromConfig: options.JWTSecretFromConfig,
-				AccessTTL:        options.AccessTTL,
+				SecretFromEnv: options.JWTSecretFromEnv,
+				AccessTTL:     options.AccessTTL,
 			}),
 		),
 
@@ -1154,7 +1147,7 @@ Usage:
 
 ```go
 jwt.Module(jwt.Options{
-	SecretFromConfig: "JWT_SECRET",
+	SecretFromEnv: "JWT_SECRET",
 	Issuer:           "my-api",
 	AccessTTL:        time.Hour,
 })
@@ -1395,29 +1388,42 @@ openapi
 swagger
 jwt
 auth
-redis
-cache
-queue
-scheduler
 health
-metrics
-tracing
-throttle
-mailer
-websocket
-events
-files
 testing
 ```
+
+Official modules are optional conveniences. Core runtime must not import `gest/modules/...`, and users can replace official modules with their own modules. Do not use global module magic in v0; use explicit module imports and constructor injection.
+
+Phase 7 scope is limited to:
+
+```txt
+config
+logger
+validation
+health
+jwt
+auth
+```
+
+Cache, throttle, events, queue, scheduler, metrics, tracing, mailer, files, and WebSocket modules are deferred.
 
 ## Config
 
 ```go
+type AppConfig struct {
+	Port      string `env:"PORT" default:"3000"`
+	JWTSecret string `env:"JWT_SECRET" validate:"required"`
+}
+
 config.Module(config.Options{
 	EnvFiles: []string{".env", ".env.local"},
-	Global:   true,
+	Load: []config.LoadTarget{
+		config.Struct[AppConfig](),
+	},
 })
 ```
+
+The config module should provide `*config.Service` and loaded user-owned structs such as `*AppConfig` through DI.
 
 ## Logger
 
@@ -1425,9 +1431,10 @@ config.Module(config.Options{
 logger.Module(logger.Options{
 	Level:  "info",
 	Format: "json",
-	Global: true,
 })
 ```
+
+Logger should use Go `log/slog` and provide `*slog.Logger` through DI. Boot logs remain controlled by `gest.WithBootLogs(true)`.
 
 ## Validation
 
@@ -1435,15 +1442,34 @@ logger.Module(logger.Options{
 validation.Module()
 ```
 
+Validation stays behind the core `gest.Validator` interface. If automatic installation through normal module mechanics is not clean, install explicitly:
+
+```go
+app := gest.New(
+	gest.WithValidator(validation.NewValidator()),
+)
+```
+
 ## JWT
 
 ```go
 jwt.Module(jwt.Options{
-	SecretFromConfig: "JWT_SECRET",
+	Secret:           "dev-secret",
+	SecretFromEnv:    "JWT_SECRET",
 	Issuer:           "my-api",
 	AccessTTL:        time.Hour,
 })
 ```
+
+JWT must not assume a user database or user model.
+
+## Auth
+
+Auth should provide conservative helpers and guard conventions only. It must not assume an ORM, repository, user table, or user model.
+
+## Deferred Ecosystem Modules
+
+The following modules are intentionally deferred beyond Phase 7. They should use the same optional module model when implemented.
 
 ## Queue
 
@@ -2211,10 +2237,9 @@ Good errors are a product feature.
 - config
 - logger
 - validation
+- health
 - jwt
 - auth
-- cache
-- health
 
 ## Phase 8: Advanced Runtime
 
@@ -2222,6 +2247,7 @@ Good errors are a product feature.
 - lifecycle events
 - websocket support
 - streaming response
+- cache/throttle/events modules
 - queue module
 - scheduler
 - metrics

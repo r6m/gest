@@ -116,6 +116,53 @@ Consequences:
 - Missing-provider hints should say to add a provider or import a module that provides it.
 - CLI generators must not emit `gest.Export()`.
 
+## ADR-0009: Official Modules Are Optional And Explicit
+
+Status: Accepted
+
+Phase 7 official modules are `config`, `logger`, `validation`, `health`, `jwt`, and `auth`.
+
+Rationale:
+
+- These modules prove the extension model without taking ownership of application infrastructure.
+- Config, logging, validation, health, and JWT are common enough to provide as conveniences.
+- Auth must remain conservative because user identity storage is application-specific.
+
+Consequences:
+
+- Core runtime must not import `modules/...`.
+- No global module behavior in v0.
+- No built-in database or ORM module.
+- Cache, throttle, events, queues, scheduler, metrics, tracing, and mailer remain deferred.
+- Official modules must use normal module/provider APIs and be replaceable by user modules.
+
+## ADR-0010: Typed App Config Uses User-Owned Structs
+
+Status: Accepted
+
+The config module can load user-owned structs and provide them through DI.
+
+Example:
+
+```go
+type AppConfig struct {
+	Port      string `env:"PORT" default:"3000"`
+	JWTSecret string `env:"JWT_SECRET" validate:"required"`
+}
+```
+
+Rationale:
+
+- App config is application-owned, not framework-owned.
+- Injecting `*AppConfig` into services is Go-native and testable.
+- This avoids global config lookups and stringly typed service code.
+
+Consequences:
+
+- `modules/config` provides `*config.Service`.
+- `modules/config` may also provide loaded user structs such as `*AppConfig`.
+- Config module is separate from CLI `gest.yaml` config loading.
+
 ## ADR-0006: Tests And Lint Are Required
 
 Status: Accepted

@@ -164,6 +164,44 @@ Go package visibility remains the privacy mechanism. If another package cannot n
 
 `Resolve` may exist for internals, testing, and advanced escape hatches. It must not be the primary user-facing dependency pattern.
 
+## Official Module Boundary
+
+Official modules live under `modules/...` and are optional conveniences. Core runtime packages must not import official modules.
+
+Phase 7 official module scope is:
+
+- `modules/config`
+- `modules/logger`
+- `modules/validation`
+- `modules/health`
+- `modules/jwt`
+- `modules/auth`
+
+Official modules must:
+
+- use normal `gest.Module` and provider APIs
+- be replaceable by user-owned modules
+- avoid database and ORM assumptions
+- avoid global-module behavior
+- avoid hidden app-wide side effects
+
+Official modules must not:
+
+- require users to import all official modules
+- add special runtime cases for their package names
+- rely on `gest.Export()` or provider privacy concepts
+- make core runtime import `modules/...`
+
+Config is a runtime module, not the CLI `gest.yaml` loader. App-specific config should be represented by user-owned structs that are loaded by `modules/config` and provided through DI.
+
+Logger should use Go `log/slog`. Boot logs remain controlled by `gest.WithBootLogs(...)` and do not require `modules/logger`.
+
+Validation should keep core validation behind the `gest.Validator` interface. If automatic installation through module imports would require special runtime hooks, use explicit `gest.WithValidator(validation.NewValidator())`.
+
+Health should expose simple dependency-free health routes by default.
+
+JWT/auth must not assume a user database, repository, ORM, or user model.
+
 ## Error Contract
 
 Expected user mistakes must return structured, actionable errors. Do not panic for normal configuration, provider, route, binding, or decorator failures.
