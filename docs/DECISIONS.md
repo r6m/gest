@@ -131,11 +131,32 @@ Rationale:
 Consequences:
 
 - Core runtime must not import `modules/...`.
-- No global module behavior in v0.
+- Global modules are allowed only as explicit module configuration.
 - No built-in database or ORM module.
 - Cache, throttle, events, queues, scheduler, metrics, tracing, and mailer remain deferred.
 - Official modules must use normal module/provider APIs and be replaceable by user modules.
 - Gest may provide guard mechanics and JWT utility, but not an auth platform.
+
+## ADR-0014: Global Modules Are Explicit Provider Convenience
+
+Status: Accepted
+
+Gest supports global modules so cross-cutting providers such as config and logger do not need to be imported by every feature module.
+
+Rationale:
+
+- Requiring every module to import config/logger is ceremony.
+- App-wide providers should still be explicit at app composition time.
+- Global modules should not become a service locator or hidden runtime package scan.
+
+Consequences:
+
+- `gest.ModuleConfig.Global` marks a module's providers as available to all modules in the app.
+- Global modules are installed only when the application imports them directly or indirectly.
+- Global modules do not replace constructor injection.
+- Global modules do not import other modules into every module; only their provider set becomes globally resolvable.
+- Duplicate provider conflicts involving global modules must be deterministic and actionable.
+- Core runtime must still not import official module packages.
 
 ## ADR-0010: Typed App Config Uses User-Owned Structs
 
@@ -224,6 +245,68 @@ Consequences:
 - Generated metadata classifies `@Use(...)` references into middleware or guard factories.
 - Execution order is app middleware, controller middleware, route middleware, guards, handler.
 - Auth, roles, and permissions remain user-owned policy.
+
+## ADR-0015: OpenAPI Inclusion Is Explicit But DTO Metadata Is Automatic
+
+Status: Accepted
+
+Controller routes are included in OpenAPI only when OpenAPI is enabled at the app level and the route is not explicitly hidden.
+
+Rationale:
+
+- If a route exists and OpenAPI is enabled, documenting it is the useful default.
+- Request and response DTOs already exist in typed handler metadata and should not require duplicate decorator input.
+- Internal/private routes still need a small escape hatch.
+
+Consequences:
+
+- `app.OpenAPI(...)` enables serving docs.
+- Generated route metadata should automatically populate request and response types from typed handlers.
+- OpenAPI should infer request body, path/query/header parameters, and response schemas from DTO tags.
+- Add `@Hide()` or `@Hidden()` as a route/controller decorator to exclude from OpenAPI; prefer `@Hide()` for brevity.
+- Do not add a required `@ApiOkResponse`, `@ApiBody`, or Swagger-specific decorator family for the MVP.
+- `@Summary`, `@Description`, `@Status`, and `@Tag` remain optional documentation enrichments.
+
+## ADR-0016: CLI Generators Must Understand Module Trees
+
+Status: Accepted
+
+`gest g ...` commands operate on nested module paths and preserve parent/child module wiring.
+
+Rationale:
+
+- Real apps need resources such as `projects/members`.
+- Flat generator behavior creates manual cleanup and wrong imports.
+- Generated tests should establish the intended wiring immediately.
+
+Consequences:
+
+- `gest g module projects/members` creates `internal/projects/members/members.module.go`.
+- The new nested module is imported into the nearest parent module when possible.
+- `gest g controller`, `gest g service`, and `gest g resource` must update the nearest matching module, not only root app modules.
+- Component generators must create basic tests by default.
+- `gest g resource <path>` creates a complete module/controller/service/DTO/test slice.
+- Dry-run, force, and no-update flags must work for nested paths too.
+
+## ADR-0017: Dev Diagnostics Should Explain Missing Generated Routes
+
+Status: Accepted
+
+`gest dev` should surface framework-aware hints after generation/build failures without hiding Go errors.
+
+Rationale:
+
+- A skipped controller route is frustrating when the build still succeeds.
+- The generator already knows enough to point at common mistakes.
+- Dev diagnostics should help users fix Gest wiring while keeping Go compiler output visible.
+
+Consequences:
+
+- `gest generate` and `gest dev` should report methods with route-like decorators on non-controller types.
+- They should report controller types that are generated but not provided in any module when this can be detected from source.
+- They should report provider constructor dependencies whose modules are likely missing imports when this can be detected without runtime scanning.
+- They should explain that route decorators must be in the method doc comment immediately above the method.
+- They must not suppress raw `go test` or `go build` output.
 
 ## ADR-0006: Tests And Lint Are Required
 

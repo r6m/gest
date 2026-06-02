@@ -16,7 +16,7 @@ Status legend:
 - No built-in database module. Users bring their own database packages and expose them through normal Gest modules/providers.
 - No Uber Fx in the user-facing API. A simple internal DI container comes first.
 - Module imports compose provider sets directly; there is no `gest.Export()`, `gest.Private()`, or module-private provider visibility model.
-- Lazy modules, dev server, OpenAPI, WebSockets, queues, scheduler, tracing, metrics, and other ecosystem modules are deferred until the core framework is proven.
+- Lazy modules, WebSockets, queues, scheduler, tracing, metrics, and other ecosystem modules are deferred until the core framework is proven.
 - Build every phase around a working vertical slice, tests, and clear errors.
 - Every non-documentation implementation task must include tests and pass lint before it is marked `Done`.
 
@@ -97,7 +97,7 @@ Goal: run an app with hand-written controller metadata before writing the genera
 
 | ID | Status | Task | Description |
 | --- | --- | --- | --- |
-| P1.1 | Done | Implement module API | Add `Module`, `ModuleConfig`, `NewModule`, `Imports`, and `Providers`. Support `Name`, `Global`, `Imports`, `Providers`, and basic boot hooks only if needed. Defer `Lazy`. |
+| P1.1 | Done | Implement module API | Add `Module`, `ModuleConfig`, `NewModule`, `Imports`, and `Providers`. Support `Name`, `Imports`, `Providers`, and basic boot hooks only if needed. Defer `Lazy` and global semantics until their own alignment task. |
 | P1.2 | Done | Implement provider API | Add `Provider`, `Provide`, `Controller`, `Value`, `Name`, `As`, and `WithScope`. Implement only singleton scope first; reject or ignore unsupported scopes with clear errors. |
 | P1.3 | Done | Implement token model | Add `Token`, `TokenOf[T]`, and named tokens for advanced cases. Keep normal APIs constructor-oriented. |
 | P1.4 | Done | Implement DI container | Support constructor injection, singleton caching, value providers, imported provider sets, missing dependency errors, and cycle detection. |
@@ -212,10 +212,13 @@ Goal: generate useful API metadata after handlers and DTOs are stable.
 | P5.3 | Done | Add OpenAPI module | Provide `openapi.Module` or app-level `OpenAPI("/openapi.json")`. |
 | P5.4 | Done | Add Swagger module | Serve Swagger UI outside core runtime as an optional module. |
 | P5.5 | Done | Add OpenAPI validation tests | Verify stable output for the example app and common DTO shapes. |
+| P5.6 | Planned | Add OpenAPI inclusion controls | Include all registered routes by default when `app.OpenAPI(...)` is enabled, infer request/response docs from typed handler metadata, and add `@Hide()` for route/controller exclusion. Do not add Swagger-specific response/body decorators. |
 
 Exit criteria:
 
 - The example app exposes a valid OpenAPI document.
+- Typed request/response handler metadata is enough to document request bodies, parameters, and response schemas.
+- Routes can be explicitly hidden from OpenAPI with `@Hide()`.
 - Swagger UI is optional and does not expand the core runtime.
 - OpenAPI work includes schema and route metadata tests.
 - `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
@@ -248,7 +251,7 @@ Design rules:
 
 - Official modules are conveniences, not framework assumptions.
 - Core runtime must not import official module packages.
-- No global module magic in v0. Use explicit module imports and constructor injection.
+- Global modules are allowed only as explicit app-composition convenience. Use constructor injection; do not add a service locator.
 - No built-in database module or ORM abstraction.
 - No cache/throttle/events in this phase.
 - No built-in auth, role, or permission module. Auth policy is user-owned.
@@ -264,6 +267,7 @@ Design rules:
 | P7.5 | Done | JWT module | Add `modules/jwt` for signing/verifying tokens with explicit `Secret` or `SecretFromEnv`; no database or user model assumptions. |
 | P7.6 | Done | No built-in auth module decision | Document that auth, roles, and permissions are user-owned modules; Gest provides guard mechanics and JWT utility only. |
 | P7.7 | Done | Optional modules checkpoint | Verify config/logger/validation/health/jwt are optional, core runtime imports none of them, and an example app can use them together. |
+| P7.8 | Planned | Add explicit global modules | Implement `ModuleConfig.Global` semantics so imported global module providers are available throughout the app graph. Cover config/logger use cases, duplicate provider conflicts, import-order determinism, nested imports, lifecycle order, and no service-locator API. |
 
 Explicitly out of scope:
 
@@ -272,12 +276,13 @@ Explicitly out of scope:
 - First-party Fiber adapter.
 - Cache/throttle/events modules.
 - Queue/scheduler modules.
-- Global module behavior.
+- Hidden global module discovery or package scanning.
 - Built-in auth, role, or permission modules.
 
 Exit criteria:
 
 - Each official module is optional.
+- Config/logger can be installed once as explicit global modules and injected by constructors across feature modules.
 - Users can replace official modules with their own modules without special cases.
 - Each optional module has unit tests and at least one integration-style usage test when it exposes runtime behavior.
 - An example or fixture app imports config/logger/validation/health/jwt together where practical.
@@ -295,16 +300,48 @@ Goal: add advanced features only after real user feedback.
 | P8.3 | Planned | Import alias resolution | Add explicit `@GestImport` first, then existing Go imports. Defer package scan aliases until there is clear demand. |
 | P8.4 | Done | Unified `@Use(...)` decorator | Add `@Use(...)` for middleware and guards, resolving from existing Go imports; classify providers by interface and do not add built-in `@Auth`, `@Roles`, or `@Permissions`. |
 | P8.5 | Planned | Typed handler performance checkpoint | Verify `gest.Handle(...)` and generated explicit adapters resolve signature shape once at route-definition time, with no per-request signature reflection. |
-| P8.6 | Planned | Streaming | Add stream and SSE helpers while preserving raw `http.ResponseWriter` escape hatches. |
-| P8.7 | Planned | WebSockets | Add WebSocket routes and socket abstractions as an optional module. |
-| P8.8 | Planned | Queue and scheduler modules | Add job processors and cron/every decorators as optional ecosystem modules. |
-| P8.9 | Planned | Metrics and tracing modules | Add observability modules after core middleware and context conventions are stable. |
+| P8.6 | Planned | Smarter dev diagnostics | Add framework-aware hints to `gest generate` and `gest dev` for skipped routes, detached decorators, generated controllers not provided in a module, and likely missing module imports. Keep raw Go output visible. |
+| P8.7 | Planned | Route generation debug output | Add concise `gest generate --explain` or equivalent output that lists parsed controllers/routes and why route-like methods were rejected. |
+| P8.8 | Planned | Streaming | Add stream and SSE helpers while preserving raw `http.ResponseWriter` escape hatches. |
+| P8.9 | Planned | WebSockets | Add WebSocket routes and socket abstractions as an optional module. |
+| P8.10 | Planned | Queue and scheduler modules | Add job processors and cron/every decorators as optional ecosystem modules. |
+| P8.11 | Planned | Metrics and tracing modules | Add observability modules after core middleware and context conventions are stable. |
 
 Exit criteria:
 
 - Advanced features do not make the simple JSON API path harder to understand.
 - Every advanced feature has clear opt-in behavior and escape hatches.
+- Dev diagnostics explain common Gest mistakes without hiding compiler, test, or build output.
 - Advanced runtime work includes concurrency, lifecycle, or integration tests appropriate to the feature.
+- `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
+
+## Phase 9: CLI Resource Generation
+
+Goal: make generators useful for real module trees while keeping generated code minimal and testable.
+
+Design rules:
+
+- All `gest g ...` commands understand nested module paths such as `projects/members`.
+- Generators update the nearest matching module using AST-guided edits where practical.
+- Generated components include focused tests by default.
+- Generated code must not assume database/auth/cache/queue infrastructure.
+- Dry-run and force behavior must remain deterministic and scoped to generated files.
+
+| ID | Status | Task | Description |
+| --- | --- | --- | --- |
+| P9.1 | Planned | Normalize nested generator paths | Centralize path parsing for `gest g module`, `g controller`, `g service`, and `g resource`. `projects/members` maps to `internal/projects/members`, type prefix `Members`, package `members`, and parent module `internal/projects/projects.module.go` when present. |
+| P9.2 | Planned | Update module generator for nesting | Make `gest g module projects/members` create `members.module.go` in the nested folder and import it into the nearest parent module. Cover fallback behavior and warnings when no parent exists. |
+| P9.3 | Planned | Generate tests for controller/service | Update `gest g controller` and `gest g service` to create minimal compiling tests by default, with `--no-test` to skip. Tests should use ordinary Go testing and `gesttest` when HTTP behavior is generated. |
+| P9.4 | Planned | Add `gest g resource` | Generate module, controller, service, DTO, generated metadata or decorators, and tests for a complete simple REST-ish resource. Keep the template infrastructure-free and no auth/database assumptions. |
+| P9.5 | Planned | Add generator checkpoint tests | Add end-to-end CLI tests for nested module generation, resource generation, force/dry-run/no-update flags, generated tests, `gest generate`, `go test ./...`, and `gest build`. |
+
+Exit criteria:
+
+- `gest g resource projects/members` creates a compiling nested resource.
+- Existing `gest g module/controller/service` behavior remains backward-compatible.
+- Generated tests pass in the created app.
+- Nested parent module updates are deterministic and import-correct.
+- CLI work includes command tests for success, failure, dry-run, force, and no-update paths.
 - `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
 ## Agent Prompt Template

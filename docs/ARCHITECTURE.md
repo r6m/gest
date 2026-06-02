@@ -162,6 +162,16 @@ Module imports are the only module-level provider boundary. If module A imports 
 
 Go package visibility remains the privacy mechanism. If another package cannot name a provider type or constructor, it cannot directly request that dependency in normal Go code.
 
+Global modules are allowed as an explicit app-composition convenience. A module with `ModuleConfig.Global: true` makes its providers available to all modules in the app after that global module has been imported somewhere in the app graph. This is intended for app-wide config, logger, and validation plumbing.
+
+Global modules must not:
+
+- be discovered by package scanning
+- create a global container lookup API for normal user code
+- make core runtime import official module packages
+- silently win duplicate provider conflicts
+- make route/controller registration global
+
 `Resolve` may exist for internals, testing, and advanced escape hatches. It must not be the primary user-facing dependency pattern.
 
 ## Official Module Boundary
@@ -183,7 +193,7 @@ Official modules must:
 - use normal `gest.Module` and provider APIs
 - be replaceable by user-owned modules
 - avoid database and ORM assumptions
-- avoid global-module behavior
+- use `Global` only when the module is explicitly imported by the app and app-wide availability is the expected ergonomic path
 - avoid hidden app-wide side effects
 
 Official modules must not:
@@ -238,6 +248,21 @@ type Guard interface {
 Request logging should be user-owned middleware. Gest should provide response status tracking through `Context.ResponseStatus()` so middleware can log final status without wrapping router-native response writers itself.
 
 Typed handler adaptation must happen at route-definition time. Generated metadata should use explicit helpers such as `gest.HandleRequestResponse(...)`. Public convenience adapters such as `gest.Handle(...)` may inspect the handler shape while creating a `HandlerFunc`, but the resulting handler must not perform signature reflection on every request.
+
+OpenAPI is opt-in at the app level with `app.OpenAPI(...)`, but included route metadata should be automatic by default once OpenAPI is enabled. Generated typed handlers must populate `Request` and `Response` metadata from handler signatures so OpenAPI can infer schemas without duplicate Swagger-style decorators.
+
+OpenAPI inclusion rules:
+
+- include all registered routes when OpenAPI is enabled
+- infer request body and parameters from request DTO tags
+- infer response schemas from response DTOs
+- enrich operations with `@Tag`, `@Summary`, `@Description`, and `@Status`
+- allow `@Hide()` on a controller or route to exclude it
+- keep Swagger UI optional and outside core runtime
+
+CLI generators must understand module trees. Paths such as `projects/members` refer to nested modules under `internal/projects/members`, with the nearest parent module updated when possible. Component generators must generate basic tests by default. `gest g resource <path>` creates a complete minimal module/controller/service/DTO/test slice and updates module wiring.
+
+`gest dev` diagnostics should add framework hints after generation/build failures. It should keep raw Go output visible while also explaining common Gest mistakes such as route decorators detached from method doc comments, methods on types without `@Controller`, generated controllers not provided in a module, and provider dependencies whose module import appears to be missing.
 
 ## Error Contract
 
