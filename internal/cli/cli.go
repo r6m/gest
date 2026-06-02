@@ -22,6 +22,7 @@ type CLI struct {
 	GenerateController Handler
 	GenerateService    Handler
 	GenerateListener   Handler
+	GenerateTask       Handler
 	GenerateResource   Handler
 	WorkDir            string
 	Stdout             io.Writer
@@ -39,6 +40,7 @@ func New() *CLI {
 	command.GenerateController = command.runGenerateController
 	command.GenerateService = command.runGenerateService
 	command.GenerateListener = command.runGenerateListener
+	command.GenerateTask = command.runGenerateTask
 	command.GenerateResource = command.runGenerateResource
 	return command
 }
@@ -70,6 +72,9 @@ func (c *CLI) withDefaults(stdout, stderr io.Writer) *CLI {
 	}
 	if c.GenerateListener == nil {
 		c.GenerateListener = c.runGenerateListener
+	}
+	if c.GenerateTask == nil {
+		c.GenerateTask = c.runGenerateTask
 	}
 	if c.GenerateResource == nil {
 		c.GenerateResource = c.runGenerateResource
@@ -128,7 +133,7 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 
 func (c *CLI) runGenerateShortcut(ctx context.Context, args []string) error {
 	if len(args) == 0 || isHelp(args[0]) {
-		return errors.New("g requires a subcommand: module, controller, service, listener, or resource")
+		return errors.New("g requires a subcommand: module, controller, service, listener, task, or resource")
 	}
 
 	switch args[0] {
@@ -140,6 +145,8 @@ func (c *CLI) runGenerateShortcut(ctx context.Context, args []string) error {
 		return runHandler(ctx, c.GenerateService, args[1:])
 	case "listener":
 		return runHandler(ctx, c.GenerateListener, args[1:])
+	case "task":
+		return runHandler(ctx, c.GenerateTask, args[1:])
 	case "resource":
 		return runHandler(ctx, c.GenerateResource, args[1:])
 	default:
@@ -180,6 +187,7 @@ Commands:
   gest g controller  scaffold a controller
   gest g service     scaffold a service
   gest g listener    scaffold an event listener
+  gest g task        scaffold a scheduled task
   gest g resource    scaffold a resource
   gest help          show this help
 `

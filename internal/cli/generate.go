@@ -107,6 +107,11 @@ func runGenerate(root string, options generateRunOptions) (generateResult, error
 		return generateResult{}, err
 	}
 	diagnostics = append(diagnostics, listenerDiagnostics...)
+	tasks, taskDiagnostics, err := generator.ParseScheduledTasks(packages)
+	if err != nil {
+		return generateResult{}, err
+	}
+	diagnostics = append(diagnostics, taskDiagnostics...)
 
 	files, err := generator.GenerateMetadataFiles(controllers)
 	if err != nil {
@@ -117,6 +122,11 @@ func runGenerate(root string, options generateRunOptions) (generateResult, error
 		return generateResult{}, err
 	}
 	files = append(files, eventFiles...)
+	schedulerFiles, err := generator.GenerateSchedulerMetadataFiles(tasks)
+	if err != nil {
+		return generateResult{}, err
+	}
+	files = append(files, schedulerFiles...)
 
 	result := generateResult{
 		scannedPackages: len(packages),

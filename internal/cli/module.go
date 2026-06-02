@@ -52,6 +52,10 @@ func (c *CLI) runGenerateListener(ctx context.Context, args []string) error {
 	return c.runGenerateComponent(ctx, args, componentListener)
 }
 
+func (c *CLI) runGenerateTask(ctx context.Context, args []string) error {
+	return c.runGenerateComponent(ctx, args, componentTask)
+}
+
 func (c *CLI) runGenerateResource(ctx context.Context, args []string) error {
 	select {
 	case <-ctx.Done():
@@ -113,6 +117,7 @@ const (
 	componentController componentKind = "controller"
 	componentService    componentKind = "service"
 	componentListener   componentKind = "listener"
+	componentTask       componentKind = "task"
 )
 
 type componentOptions struct {
@@ -525,6 +530,34 @@ func (l *%sListener) Handle(ctx context.Context, event %sEvent) error {
 	return nil
 }
 `, componentPath.packageName, componentPath.typePrefix, eventNamePrefix(componentPath), componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix)
+	case componentTask:
+		source = fmt.Sprintf(`package %s
+
+import (
+	"context"
+
+	"github.com/r6m/gest/modules/scheduler"
+)
+
+// @Every("1m")
+type %sTask struct {
+	scheduler *scheduler.Scheduler
+}
+
+func New%sTask(scheduler *scheduler.Scheduler) *%sTask {
+	return &%sTask{scheduler: scheduler}
+}
+
+func (t *%sTask) OnModuleInit(ctx context.Context) error {
+	_ = ctx
+	return scheduler.RegisterTask(t.scheduler, t)
+}
+
+func (t *%sTask) Run(ctx context.Context) error {
+	_ = ctx
+	return nil
+}
+`, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix)
 	default:
 		return nil, fmt.Errorf("unknown component kind %q", kind)
 	}
@@ -582,6 +615,27 @@ func TestNew%sListener(t *testing.T) {
 	}
 }
 `, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix, eventNamePrefix(componentPath), componentPath.typePrefix)
+	case componentTask:
+		source = fmt.Sprintf(`package %s
+
+import (
+	"context"
+	"testing"
+
+	"github.com/r6m/gest/modules/scheduler"
+)
+
+func TestNew%sTask(t *testing.T) {
+	s := scheduler.NewScheduler()
+	task := New%sTask(s)
+	if task == nil {
+		t.Fatal("task is nil")
+	}
+	if err := task.OnModuleInit(context.Background()); err != nil {
+		t.Fatalf("OnModuleInit returned error: %%v", err)
+	}
+}
+`, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix)
 	default:
 		return nil, fmt.Errorf("unknown component kind %q", kind)
 	}
@@ -1082,6 +1136,8 @@ func providerCall(componentPath generatorPath, kind componentKind) string {
 		return "gest.Provide(New" + componentPath.typePrefix + "Service)"
 	case componentListener:
 		return "gest.Provide(New" + componentPath.typePrefix + "Listener)"
+	case componentTask:
+		return "gest.Provide(New" + componentPath.typePrefix + "Task)"
 	default:
 		return ""
 	}

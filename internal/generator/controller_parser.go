@@ -63,6 +63,18 @@ type Listener struct {
 	Column    int
 }
 
+// ScheduledTask describes scheduler task metadata parsed from @Cron or @Every.
+type ScheduledTask struct {
+	Package  Package
+	TypeName string
+	Identity string
+	Cron     string
+	Every    string
+	File     string
+	Line     int
+	Column   int
+}
+
 // ParseControllers parses controller-level MVP decorators from scanned packages.
 func ParseControllers(packages []Package) ([]Controller, []Diagnostic, error) {
 	controllers := make([]Controller, 0)
@@ -224,6 +236,151 @@ func invalidEventHandlerSignatureDiagnostic(fileSet *token.FileSet, function *as
 		Code:     DiagnosticInvalidHandlerSignature,
 		Message:  "invalid event listener signature " + handlerSignatureString(function),
 		Hint:     "accepted signature is func(ctx context.Context, event EventType) error",
+		File:     position.Filename,
+		Line:     position.Line,
+		Column:   position.Column,
+		Target:   function.Name.Name,
+	}
+}
+
+// ParseScheduledTasks parses scheduler decorators from scanned packages.
+func ParseScheduledTasks(packages []Package) ([]ScheduledTask, []Diagnostic, error) {
+	tasks := make([]ScheduledTask, 0)
+	diagnostics := make([]Diagnostic, 0)
+	for _, pkg := range packages {
+		for _, file := range pkg.Files {
+			fileTasks, fileDiagnostics, err := parseScheduledTaskFile(pkg, file)
+			if err != nil {
+				return nil, nil, err
+			}
+			tasks = append(tasks, fileTasks...)
+			diagnostics = append(diagnostics, fileDiagnostics...)
+		}
+	}
+	sortScheduledTasks(tasks)
+	sortDiagnostics(diagnostics)
+	return tasks, diagnostics, nil
+}
+
+func parseScheduledTaskFile(pkg Package, file string) ([]ScheduledTask, []Diagnostic, error) {
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, file, nil, parser.ParseComments)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse Go file %q: %w", file, err)
+	}
+
+	typeSchedules := make(map[string]ScheduledTask)
+	diagnostics := make([]Diagnostic, 0)
+	for _, declaration := range parsed.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Doc == nil {
+			continue
+		}
+		decorators := decoratorsFromComments(fileSet, general.Doc)
+		if len(decorators) == 0 {
+			continue
+		}
+		typeName, isSingleType := singleTypeName(general)
+		task := ScheduledTask{Package: pkg, TypeName: typeName, File: file}
+		var firstSchedule *decorator
+		for _, decorator := range decorators {
+			switch decorator.Name {
+			case "Cron":
+				value, ok := parseSingleStringArgument(decorator.Raw)
+				if !ok {
+					diagnostics = append(diagnostics, invalidSyntaxDiagnostic(
+						decorator,
+						"@Cron requires a single string expression argument",
+						`use @Cron("0 * * * *")`,
+					))
+					continue
+				}
+				task.Cron = value
+				task.Identity = value
+				task.File = decorator.File
+				task.Line = decorator.Line
+				task.Column = decorator.Column
+				firstSchedule = &decorator
+			case "Every":
+				value, ok := parseSingleStringArgument(decorator.Raw)
+				if !ok {
+					diagnostics = append(diagnostics, invalidSyntaxDiagnostic(
+						decorator,
+						"@Every requires a single string duration argument",
+						`use @Every("5m")`,
+					))
+					continue
+				}
+				task.Every = value
+				if task.Identity == "" {
+					task.Identity = value
+					task.File = decorator.File
+					task.Line = decorator.Line
+					task.Column = decorator.Column
+				}
+				if firstSchedule == nil {
+					firstSchedule = &decorator
+				}
+			}
+		}
+		if firstSchedule == nil {
+			continue
+		}
+		if !isSingleType {
+			diagnostics = append(diagnostics, invalidTargetDiagnostic(*firstSchedule, typeName))
+			continue
+		}
+		if task.Cron != "" && task.Every != "" {
+			diagnostics = append(diagnostics, invalidSyntaxDiagnostic(
+				*firstSchedule,
+				"scheduled task cannot use both @Cron and @Every",
+				"use one schedule decorator per task type",
+			))
+			continue
+		}
+		typeSchedules[typeName] = task
+	}
+
+	tasks := make([]ScheduledTask, 0, len(typeSchedules))
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name == nil || function.Name.Name != "Run" {
+			continue
+		}
+		receiver := receiverTypeName(function)
+		task, ok := typeSchedules[receiver]
+		if !ok {
+			continue
+		}
+		if !validateScheduledTaskSignature(function) {
+			diagnostics = append(diagnostics, invalidScheduledTaskSignatureDiagnostic(fileSet, function))
+			delete(typeSchedules, receiver)
+			continue
+		}
+		tasks = append(tasks, task)
+		delete(typeSchedules, receiver)
+	}
+	for typeName, task := range typeSchedules {
+		diagnostics = append(diagnostics, Diagnostic{
+			Severity: SeverityError,
+			Code:     DiagnosticInvalidHandlerSignature,
+			Message:  "scheduled task " + typeName + " must define Run(ctx context.Context) error",
+			Hint:     "add a Run method with context.Context and error return",
+			File:     task.File,
+			Line:     task.Line,
+			Column:   task.Column,
+		})
+	}
+	return tasks, diagnostics, nil
+}
+
+func invalidScheduledTaskSignatureDiagnostic(fileSet *token.FileSet, function *ast.FuncDecl) Diagnostic {
+	position := fileSet.Position(function.Pos())
+	return Diagnostic{
+		Severity: SeverityError,
+		Code:     DiagnosticInvalidHandlerSignature,
+		Message:  "invalid scheduled task signature " + handlerSignatureString(function),
+		Hint:     "accepted signature is func(ctx context.Context) error",
 		File:     position.Filename,
 		Line:     position.Line,
 		Column:   position.Column,
@@ -395,6 +552,8 @@ func parseControllersFromAST(pkg Package, file string, fileSet *token.FileSet, p
 					controller.Guards = append(controller.Guards, guard)
 				}
 			case "OnEvent":
+				continue
+			case "Cron", "Every":
 				continue
 			default:
 				diagnostics = append(diagnostics, unknownDecoratorDiagnostic(decorator))
@@ -852,6 +1011,19 @@ func validateEventHandlerSignature(function *ast.FuncDecl) (string, bool) {
 	return eventType, true
 }
 
+func validateScheduledTaskSignature(function *ast.FuncDecl) bool {
+	params := function.Type.Params
+	if params == nil || fieldCount(params.List) != 1 {
+		return false
+	}
+	flattenedParams := flattenFields(params.List)
+	if len(flattenedParams) != 1 || !isContextType(flattenedParams[0]) {
+		return false
+	}
+	results := flattenResultFields(function.Type.Results)
+	return len(results) == 1 && isErrorType(results[0])
+}
+
 func isContextType(expression ast.Expr) bool {
 	selector, ok := expression.(*ast.SelectorExpr)
 	if !ok || selector.Sel == nil || selector.Sel.Name != "Context" {
@@ -1087,6 +1259,30 @@ func sortRoutes(routes []Route) {
 
 func sortListeners(listeners []Listener) {
 	slices.SortFunc(listeners, func(a Listener, b Listener) int {
+		if filepath.ToSlash(a.File) < filepath.ToSlash(b.File) {
+			return -1
+		}
+		if filepath.ToSlash(a.File) > filepath.ToSlash(b.File) {
+			return 1
+		}
+		if a.Line < b.Line {
+			return -1
+		}
+		if a.Line > b.Line {
+			return 1
+		}
+		if a.TypeName < b.TypeName {
+			return -1
+		}
+		if a.TypeName > b.TypeName {
+			return 1
+		}
+		return 0
+	})
+}
+
+func sortScheduledTasks(tasks []ScheduledTask) {
+	slices.SortFunc(tasks, func(a ScheduledTask, b ScheduledTask) int {
 		if filepath.ToSlash(a.File) < filepath.ToSlash(b.File) {
 			return -1
 		}

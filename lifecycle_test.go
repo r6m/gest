@@ -362,7 +362,7 @@ func (s *unusedLifecycleService) OnApplicationShutdown(context.Context) error {
 	return nil
 }
 
-func TestLifecycleShutdownOnlyCallsInitializedProviders(t *testing.T) {
+func TestLifecycleShutdownCallsEagerProviders(t *testing.T) {
 	events := []string{}
 	app := New(WithRouter(newFakeRouter()))
 	app.Import(NewModule(ModuleConfig{
@@ -384,7 +384,7 @@ func TestLifecycleShutdownOnlyCallsInitializedProviders(t *testing.T) {
 	}
 
 	got := strings.Join(events, ",")
-	if strings.Contains(got, "unused") {
-		t.Fatalf("events = %#v, want unused provider to remain uncalled", events)
+	if !strings.Contains(got, "unused.OnApplicationShutdown") {
+		t.Fatalf("events = %#v, want unused eager provider shutdown hook", events)
 	}
 }

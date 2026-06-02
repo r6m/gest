@@ -88,6 +88,37 @@ func GenerateEventMetadataFiles(listeners []Listener) ([]GeneratedFile, error) {
 	return files, nil
 }
 
+// GenerateSchedulerMetadataFiles emits deterministic Gest scheduler task metadata files.
+func GenerateSchedulerMetadataFiles(tasks []ScheduledTask) ([]GeneratedFile, error) {
+	tasksByDir := make(map[string][]ScheduledTask)
+	for _, task := range tasks {
+		tasksByDir[task.Package.Dir] = append(tasksByDir[task.Package.Dir], task)
+	}
+
+	dirs := make([]string, 0, len(tasksByDir))
+	for dir := range tasksByDir {
+		dirs = append(dirs, dir)
+	}
+	slices.Sort(dirs)
+
+	files := make([]GeneratedFile, 0, len(dirs))
+	for _, dir := range dirs {
+		pkgTasks := tasksByDir[dir]
+		sortScheduledTasks(pkgTasks)
+		content, err := generatePackageSchedulerMetadata(pkgTasks)
+		if err != nil {
+			return nil, err
+		}
+		pkg := pkgTasks[0].Package
+		files = append(files, GeneratedFile{
+			Path:    filepath.Join(pkg.Dir, pkg.Name+"_scheduler.gen.go"),
+			Package: pkg,
+			Content: content,
+		})
+	}
+	return files, nil
+}
+
 // WriteGeneratedFiles formats and writes generated files, skipping unchanged files.
 func WriteGeneratedFiles(files []GeneratedFile) ([]WriteResult, []Diagnostic) {
 	results := make([]WriteResult, 0, len(files))
@@ -219,6 +250,62 @@ func writeEventListenerMetadata(buffer *bytes.Buffer, listener Listener) {
 	buffer.WriteString("\t\t\t\tHandle: events.Handle[")
 	buffer.WriteString(listener.EventType)
 	buffer.WriteString("](l.Handle),\n")
+	buffer.WriteString("\t\t\t},\n")
+	buffer.WriteString("\t\t},\n")
+	buffer.WriteString("\t}\n")
+	buffer.WriteString("}\n")
+}
+
+func generatePackageSchedulerMetadata(tasks []ScheduledTask) ([]byte, error) {
+	if len(tasks) == 0 {
+		return nil, nil
+	}
+
+	var buffer bytes.Buffer
+	pkg := tasks[0].Package
+	buffer.WriteString(generatedHeader)
+	buffer.WriteString("\npackage ")
+	buffer.WriteString(pkg.Name)
+	buffer.WriteString("\n\n")
+	buffer.WriteString("import \"github.com/r6m/gest/modules/scheduler\"\n\n")
+	for index, task := range tasks {
+		if index > 0 {
+			buffer.WriteString("\n")
+		}
+		writeSchedulerTaskMetadata(&buffer, task)
+	}
+
+	formatted, err := format.Source(buffer.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("format generated scheduler metadata for package %q: %w", pkg.ImportPath, err)
+	}
+	return formatted, nil
+}
+
+func writeSchedulerTaskMetadata(buffer *bytes.Buffer, task ScheduledTask) {
+	buffer.WriteString("func (t *")
+	buffer.WriteString(task.TypeName)
+	buffer.WriteString(") GestScheduledTask() scheduler.TaskDefinition {\n")
+	buffer.WriteString("\treturn scheduler.TaskDefinition{\n")
+	buffer.WriteString("\t\tName: ")
+	buffer.WriteString(strconv.Quote(task.TypeName))
+	buffer.WriteString(",\n")
+	buffer.WriteString("\t\tTasks: []scheduler.Task{\n")
+	buffer.WriteString("\t\t\t{\n")
+	buffer.WriteString("\t\t\t\tIdentity: ")
+	buffer.WriteString(strconv.Quote(task.Identity))
+	buffer.WriteString(",\n")
+	if task.Cron != "" {
+		buffer.WriteString("\t\t\t\tCron: ")
+		buffer.WriteString(strconv.Quote(task.Cron))
+		buffer.WriteString(",\n")
+	}
+	if task.Every != "" {
+		buffer.WriteString("\t\t\t\tEvery: ")
+		buffer.WriteString(strconv.Quote(task.Every))
+		buffer.WriteString(",\n")
+	}
+	buffer.WriteString("\t\t\t\tRun: scheduler.Handle(t.Run),\n")
 	buffer.WriteString("\t\t\t},\n")
 	buffer.WriteString("\t\t},\n")
 	buffer.WriteString("\t}\n")

@@ -84,6 +84,49 @@ func TestGenerateListenerCreatesListenerFile(t *testing.T) {
 	assertOutputContains(t, testContent, "func TestNewTeamListener")
 }
 
+func TestGenerateTaskCreatesTaskFile(t *testing.T) {
+	root := moduleFixture(t, nil)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "task", "project/team", "--no-update-module"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%q", code, stderr.String())
+	}
+	content := readFile(t, filepath.Join(root, "internal", "project", "team", "team.task.go"))
+	assertOutputContains(t, stdout.String(), "CREATE internal/project/team/team.task.go", "SKIP parent module update")
+	assertOutputContains(t, content,
+		"package team",
+		`// @Every("1m")`,
+		"type TeamTask struct",
+		"func NewTeamTask(scheduler *scheduler.Scheduler) *TeamTask",
+		"func (t *TeamTask) OnModuleInit(ctx context.Context) error",
+		"func (t *TeamTask) Run(ctx context.Context) error",
+	)
+	testContent := readFile(t, filepath.Join(root, "internal", "project", "team", "team.task_test.go"))
+	assertOutputContains(t, stdout.String(), "CREATE internal/project/team/team.task_test.go")
+	assertOutputContains(t, testContent, "func TestNewTeamTask")
+}
+
+func TestGenerateTaskNoTestSkipsTestFile(t *testing.T) {
+	root := moduleFixture(t, nil)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "task", "project/team", "--no-update-module", "--no-test"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%q", code, stderr.String())
+	}
+	assertFileMissing(t, filepath.Join(root, "internal", "project", "team", "team.task_test.go"))
+	assertOutputExcludes(t, stdout.String(), "team.task_test.go")
+}
+
 func TestGenerateControllerNoTestSkipsTestFile(t *testing.T) {
 	root := moduleFixture(t, nil)
 	var stdout bytes.Buffer
@@ -165,6 +208,28 @@ func TestGenerateListenerUpdatesModuleProviders(t *testing.T) {
 	assertOutputContains(t, module,
 		"Providers: gest.Providers(",
 		"gest.Provide(NewTeamListener),",
+	)
+}
+
+func TestGenerateTaskUpdatesModuleProviders(t *testing.T) {
+	root := moduleFixture(t, map[string]string{
+		"internal/project/team/team.module.go": moduleSource("team", "project.team"),
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "task", "project/team"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	module := readFile(t, filepath.Join(root, "internal", "project", "team", "team.module.go"))
+	assertOutputContains(t, stdout.String(), "UPDATE internal/project/team/team.module.go")
+	assertOutputContains(t, module,
+		"Providers: gest.Providers(",
+		"gest.Provide(NewTeamTask),",
 	)
 }
 

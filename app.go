@@ -166,6 +166,9 @@ func (a *App) bootstrap() error {
 	if err != nil {
 		return err
 	}
+	if err := initializeProviders(rootContainer); err != nil {
+		return err
+	}
 	a.lifecycle = initializedProviders(rootContainer)
 
 	if err := a.callStartupHook(context.Background(), "OnModuleInit"); err != nil {
@@ -194,6 +197,20 @@ func (a *App) bootstrap() error {
 
 	a.built = true
 	a.logBoot("GEST boot duration: %s", time.Since(start).Round(time.Millisecond))
+	return nil
+}
+
+func initializeProviders(rootContainer *moduleContainer) error {
+	for _, module := range allModuleContainers(rootContainer) {
+		for _, provider := range module.ownOrder {
+			if provider.provider.Kind == ProviderKindController {
+				continue
+			}
+			if _, err := provider.resolve(nil); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
