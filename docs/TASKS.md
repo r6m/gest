@@ -258,7 +258,7 @@ Design rules:
 | --- | --- | --- | --- |
 | P7.1 | Done | Config module | Add `modules/config` with `.env` loading, typed getters, and user-owned struct loading through DI. |
 | P7.2 | Done | Logger module | Add `modules/logger` using `log/slog`; provide `*slog.Logger` through DI without coupling boot logs to the module. |
-| P7.3 | Planned | Validation module | Add `modules/validation` with a concrete `gest.Validator` implementation and explicit app installation if needed. |
+| P7.3 | Done | Validation module | Add `modules/validation` with a concrete `gest.Validator` implementation and explicit app installation if needed. |
 | P7.4 | Planned | Health module | Add `modules/health` with `/health`, `/health/live`, and `/health/ready` returning `{"status":"ok"}`. |
 | P7.5 | Planned | JWT module | Add `modules/jwt` for signing/verifying tokens with explicit `Secret` or `SecretFromEnv`; no database or user model assumptions. |
 | P7.6 | Planned | Auth module | Add a conservative `modules/auth` layer for auth helpers/guard conventions without user database assumptions. |
