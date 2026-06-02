@@ -117,6 +117,11 @@ func runGenerate(root string, options generateRunOptions) (generateResult, error
 		return generateResult{}, err
 	}
 	diagnostics = append(diagnostics, processorDiagnostics...)
+	gateways, gatewayDiagnostics, err := generator.ParseGateways(packages)
+	if err != nil {
+		return generateResult{}, err
+	}
+	diagnostics = append(diagnostics, gatewayDiagnostics...)
 
 	files, err := generator.GenerateMetadataFiles(controllers)
 	if err != nil {
@@ -137,6 +142,11 @@ func runGenerate(root string, options generateRunOptions) (generateResult, error
 		return generateResult{}, err
 	}
 	files = append(files, queueFiles...)
+	gatewayFiles, err := generator.GenerateGatewayMetadataFiles(gateways)
+	if err != nil {
+		return generateResult{}, err
+	}
+	files = append(files, gatewayFiles...)
 
 	result := generateResult{
 		scannedPackages: len(packages),

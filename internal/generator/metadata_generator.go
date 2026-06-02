@@ -150,6 +150,37 @@ func GenerateQueueMetadataFiles(processors []QueueProcessor) ([]GeneratedFile, e
 	return files, nil
 }
 
+// GenerateGatewayMetadataFiles emits deterministic Gest WebSocket gateway metadata files.
+func GenerateGatewayMetadataFiles(gateways []Gateway) ([]GeneratedFile, error) {
+	gatewaysByDir := make(map[string][]Gateway)
+	for _, gateway := range gateways {
+		gatewaysByDir[gateway.Package.Dir] = append(gatewaysByDir[gateway.Package.Dir], gateway)
+	}
+
+	dirs := make([]string, 0, len(gatewaysByDir))
+	for dir := range gatewaysByDir {
+		dirs = append(dirs, dir)
+	}
+	slices.Sort(dirs)
+
+	files := make([]GeneratedFile, 0, len(dirs))
+	for _, dir := range dirs {
+		pkgGateways := gatewaysByDir[dir]
+		sortGateways(pkgGateways)
+		content, err := generatePackageGatewayMetadata(pkgGateways)
+		if err != nil {
+			return nil, err
+		}
+		pkg := pkgGateways[0].Package
+		files = append(files, GeneratedFile{
+			Path:    filepath.Join(pkg.Dir, pkg.Name+"_websocket.gen.go"),
+			Package: pkg,
+			Content: content,
+		})
+	}
+	return files, nil
+}
+
 // WriteGeneratedFiles formats and writes generated files, skipping unchanged files.
 func WriteGeneratedFiles(files []GeneratedFile) ([]WriteResult, []Diagnostic) {
 	results := make([]WriteResult, 0, len(files))
@@ -386,6 +417,61 @@ func writeQueueProcessorMetadata(buffer *bytes.Buffer, processor QueueProcessor)
 	buffer.WriteString(processor.PayloadType)
 	buffer.WriteString("](p.Process),\n")
 	buffer.WriteString("\t\t\t},\n")
+	buffer.WriteString("\t\t},\n")
+	buffer.WriteString("\t}\n")
+	buffer.WriteString("}\n")
+}
+
+func generatePackageGatewayMetadata(gateways []Gateway) ([]byte, error) {
+	if len(gateways) == 0 {
+		return nil, nil
+	}
+
+	var buffer bytes.Buffer
+	pkg := gateways[0].Package
+	buffer.WriteString(generatedHeader)
+	buffer.WriteString("\npackage ")
+	buffer.WriteString(pkg.Name)
+	buffer.WriteString("\n\n")
+	buffer.WriteString("import \"github.com/r6m/gest/modules/websocket\"\n\n")
+	for index, gateway := range gateways {
+		if index > 0 {
+			buffer.WriteString("\n")
+		}
+		writeGatewayMetadata(&buffer, gateway)
+	}
+
+	formatted, err := format.Source(buffer.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("format generated gateway metadata for package %q: %w", pkg.ImportPath, err)
+	}
+	return formatted, nil
+}
+
+func writeGatewayMetadata(buffer *bytes.Buffer, gateway Gateway) {
+	buffer.WriteString("func (g *")
+	buffer.WriteString(gateway.TypeName)
+	buffer.WriteString(") GestGateway() websocket.GatewayDefinition {\n")
+	buffer.WriteString("\treturn websocket.GatewayDefinition{\n")
+	buffer.WriteString("\t\tName: ")
+	buffer.WriteString(strconv.Quote(gateway.TypeName))
+	buffer.WriteString(",\n")
+	buffer.WriteString("\t\tPath: ")
+	buffer.WriteString(strconv.Quote(gateway.Path))
+	buffer.WriteString(",\n")
+	buffer.WriteString("\t\tSubscriptions: []websocket.SubscriptionDefinition{\n")
+	for _, subscription := range gateway.Subscriptions {
+		buffer.WriteString("\t\t\t{\n")
+		buffer.WriteString("\t\t\t\tEvent: ")
+		buffer.WriteString(strconv.Quote(subscription.Event))
+		buffer.WriteString(",\n")
+		buffer.WriteString("\t\t\t\tHandle: websocket.Handle[")
+		buffer.WriteString(subscription.MessageType)
+		buffer.WriteString("](g.")
+		buffer.WriteString(subscription.HandlerName)
+		buffer.WriteString("),\n")
+		buffer.WriteString("\t\t\t},\n")
+	}
 	buffer.WriteString("\t\t},\n")
 	buffer.WriteString("\t}\n")
 	buffer.WriteString("}\n")

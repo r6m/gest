@@ -86,6 +86,27 @@ type QueueProcessor struct {
 	Column      int
 }
 
+// Gateway describes WebSocket gateway metadata parsed from @Gateway.
+type Gateway struct {
+	Package       Package
+	TypeName      string
+	Path          string
+	File          string
+	Line          int
+	Column        int
+	Subscriptions []Subscription
+}
+
+// Subscription describes one WebSocket @Subscribe method.
+type Subscription struct {
+	Event       string
+	HandlerName string
+	MessageType string
+	File        string
+	Line        int
+	Column      int
+}
+
 // ParseControllers parses controller-level MVP decorators from scanned packages.
 func ParseControllers(packages []Package) ([]Controller, []Diagnostic, error) {
 	controllers := make([]Controller, 0)
@@ -514,6 +535,160 @@ func invalidQueueProcessorSignatureDiagnostic(fileSet *token.FileSet, function *
 	}
 }
 
+// ParseGateways parses WebSocket gateway decorators from scanned packages.
+func ParseGateways(packages []Package) ([]Gateway, []Diagnostic, error) {
+	gateways := make([]Gateway, 0)
+	diagnostics := make([]Diagnostic, 0)
+	for _, pkg := range packages {
+		for _, file := range pkg.Files {
+			fileGateways, fileDiagnostics, err := parseGatewayFile(pkg, file)
+			if err != nil {
+				return nil, nil, err
+			}
+			gateways = append(gateways, fileGateways...)
+			diagnostics = append(diagnostics, fileDiagnostics...)
+		}
+	}
+	sortGateways(gateways)
+	sortDiagnostics(diagnostics)
+	return gateways, diagnostics, nil
+}
+
+func parseGatewayFile(pkg Package, file string) ([]Gateway, []Diagnostic, error) {
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, file, nil, parser.ParseComments)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse Go file %q: %w", file, err)
+	}
+
+	gatewaysByType := make(map[string]Gateway)
+	diagnostics := make([]Diagnostic, 0)
+	for _, declaration := range parsed.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Doc == nil {
+			continue
+		}
+		decorators := decoratorsFromComments(fileSet, general.Doc)
+		if len(decorators) == 0 {
+			continue
+		}
+		typeName, isSingleType := singleTypeName(general)
+		for _, decorator := range decorators {
+			if decorator.Name != "Gateway" {
+				continue
+			}
+			if !isSingleType {
+				diagnostics = append(diagnostics, invalidTargetDiagnostic(decorator, typeName))
+				continue
+			}
+			path, ok := parseSingleStringArgument(decorator.Raw)
+			if !ok {
+				diagnostics = append(diagnostics, invalidSyntaxDiagnostic(
+					decorator,
+					"@Gateway requires a single string path argument",
+					`use @Gateway("/ws/chat")`,
+				))
+				continue
+			}
+			if !strings.HasPrefix(path, "/") {
+				diagnostics = append(diagnostics, invalidSyntaxDiagnostic(
+					decorator,
+					"@Gateway path must start with /",
+					`use @Gateway("/ws/chat")`,
+				))
+				continue
+			}
+			gatewaysByType[typeName] = Gateway{
+				Package:  pkg,
+				TypeName: typeName,
+				Path:     path,
+				File:     decorator.File,
+				Line:     decorator.Line,
+				Column:   decorator.Column,
+			}
+		}
+	}
+
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Doc == nil || function.Name == nil {
+			continue
+		}
+		decorators := decoratorsFromComments(fileSet, function.Doc)
+		if len(decorators) == 0 {
+			continue
+		}
+		receiver := receiverTypeName(function)
+		gateway, hasGateway := gatewaysByType[receiver]
+		for _, decorator := range decorators {
+			if decorator.Name != "Subscribe" {
+				continue
+			}
+			if !hasGateway {
+				diagnostics = append(diagnostics, invalidGatewayRouteTargetDiagnostic(decorator, function.Name.Name))
+				continue
+			}
+			event, ok := parseSingleStringArgument(decorator.Raw)
+			if !ok {
+				diagnostics = append(diagnostics, invalidSyntaxDiagnostic(
+					decorator,
+					"@Subscribe requires a single string event argument",
+					`use @Subscribe("message.send")`,
+				))
+				continue
+			}
+			messageType, ok := validateGatewayHandlerSignature(function)
+			if !ok {
+				diagnostics = append(diagnostics, invalidGatewayHandlerSignatureDiagnostic(fileSet, function))
+				continue
+			}
+			gateway.Subscriptions = append(gateway.Subscriptions, Subscription{
+				Event:       event,
+				HandlerName: function.Name.Name,
+				MessageType: messageType,
+				File:        decorator.File,
+				Line:        decorator.Line,
+				Column:      decorator.Column,
+			})
+			gatewaysByType[receiver] = gateway
+		}
+	}
+
+	gateways := make([]Gateway, 0, len(gatewaysByType))
+	for _, gateway := range gatewaysByType {
+		sortSubscriptions(gateway.Subscriptions)
+		gateways = append(gateways, gateway)
+	}
+	return gateways, diagnostics, nil
+}
+
+func invalidGatewayHandlerSignatureDiagnostic(fileSet *token.FileSet, function *ast.FuncDecl) Diagnostic {
+	position := fileSet.Position(function.Pos())
+	return Diagnostic{
+		Severity: SeverityError,
+		Code:     DiagnosticInvalidHandlerSignature,
+		Message:  "invalid WebSocket gateway handler signature " + handlerSignatureString(function),
+		Hint:     "accepted signature is func(ctx context.Context, client *websocket.Client, msg MessageType) error",
+		File:     position.Filename,
+		Line:     position.Line,
+		Column:   position.Column,
+		Target:   function.Name.Name,
+	}
+}
+
+func invalidGatewayRouteTargetDiagnostic(decorator decorator, target string) Diagnostic {
+	return Diagnostic{
+		Severity: SeverityError,
+		Code:     DiagnosticInvalidTarget,
+		Message:  "@Subscribe can only apply to methods on types with @Gateway",
+		Hint:     "move @Subscribe to a method on a gateway type",
+		File:     decorator.File,
+		Line:     decorator.Line,
+		Column:   decorator.Column,
+		Target:   target,
+	}
+}
+
 func parseControllerRoutesFile(pkg Package, file string) ([]Controller, []Diagnostic, error) {
 	fileSet := token.NewFileSet()
 	parsed, err := parser.ParseFile(fileSet, file, nil, parser.ParseComments)
@@ -682,6 +857,8 @@ func parseControllersFromAST(pkg Package, file string, fileSet *token.FileSet, p
 			case "Cron", "Every":
 				continue
 			case "Processor":
+				continue
+			case "Gateway":
 				continue
 			default:
 				diagnostics = append(diagnostics, unknownDecoratorDiagnostic(decorator))
@@ -1159,6 +1336,26 @@ func validateQueueProcessorSignature(function *ast.FuncDecl) (string, bool) {
 	return payloadType, true
 }
 
+func validateGatewayHandlerSignature(function *ast.FuncDecl) (string, bool) {
+	params := function.Type.Params
+	if params == nil || fieldCount(params.List) != 3 {
+		return "", false
+	}
+	flattenedParams := flattenFields(params.List)
+	if len(flattenedParams) != 3 || !isContextType(flattenedParams[0]) || !isWebSocketClientPointer(flattenedParams[1]) {
+		return "", false
+	}
+	messageType := exprString(flattenedParams[2])
+	if messageType == "" {
+		return "", false
+	}
+	results := flattenResultFields(function.Type.Results)
+	if len(results) != 1 || !isErrorType(results[0]) {
+		return "", false
+	}
+	return messageType, true
+}
+
 func validateScheduledTaskSignature(function *ast.FuncDecl) bool {
 	params := function.Type.Params
 	if params == nil || fieldCount(params.List) != 1 {
@@ -1170,6 +1367,19 @@ func validateScheduledTaskSignature(function *ast.FuncDecl) bool {
 	}
 	results := flattenResultFields(function.Type.Results)
 	return len(results) == 1 && isErrorType(results[0])
+}
+
+func isWebSocketClientPointer(expression ast.Expr) bool {
+	pointer, ok := expression.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	selector, ok := pointer.X.(*ast.SelectorExpr)
+	if !ok || selector.Sel == nil || selector.Sel.Name != "Client" {
+		return false
+	}
+	packageName, ok := selector.X.(*ast.Ident)
+	return ok && packageName.Name == "websocket"
 }
 
 func isContextType(expression ast.Expr) bool {
@@ -1493,6 +1703,54 @@ func sortQueueProcessors(processors []QueueProcessor) {
 			return -1
 		}
 		if a.TypeName > b.TypeName {
+			return 1
+		}
+		return 0
+	})
+}
+
+func sortGateways(gateways []Gateway) {
+	slices.SortFunc(gateways, func(a Gateway, b Gateway) int {
+		if filepath.ToSlash(a.File) < filepath.ToSlash(b.File) {
+			return -1
+		}
+		if filepath.ToSlash(a.File) > filepath.ToSlash(b.File) {
+			return 1
+		}
+		if a.Line < b.Line {
+			return -1
+		}
+		if a.Line > b.Line {
+			return 1
+		}
+		if a.TypeName < b.TypeName {
+			return -1
+		}
+		if a.TypeName > b.TypeName {
+			return 1
+		}
+		return 0
+	})
+}
+
+func sortSubscriptions(subscriptions []Subscription) {
+	slices.SortFunc(subscriptions, func(a Subscription, b Subscription) int {
+		if filepath.ToSlash(a.File) < filepath.ToSlash(b.File) {
+			return -1
+		}
+		if filepath.ToSlash(a.File) > filepath.ToSlash(b.File) {
+			return 1
+		}
+		if a.Line < b.Line {
+			return -1
+		}
+		if a.Line > b.Line {
+			return 1
+		}
+		if a.HandlerName < b.HandlerName {
+			return -1
+		}
+		if a.HandlerName > b.HandlerName {
 			return 1
 		}
 		return 0

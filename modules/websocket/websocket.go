@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sync"
 	"sync/atomic"
 
@@ -50,6 +51,38 @@ func Module(options Options) gest.Module {
 			}),
 		),
 	})
+}
+
+// Handler handles one decoded WebSocket message payload.
+type Handler func(context.Context, *Client, any) error
+
+// SubscriptionDefinition describes one generated WebSocket message subscription.
+type SubscriptionDefinition struct {
+	Event  string
+	Handle Handler
+}
+
+// GatewayDefinition describes generated gateway metadata.
+type GatewayDefinition struct {
+	Name          string
+	Path          string
+	Subscriptions []SubscriptionDefinition
+}
+
+// DescribedGateway is implemented by generated gateway metadata.
+type DescribedGateway interface {
+	GestGateway() GatewayDefinition
+}
+
+// Handle adapts a typed gateway subscription method to generated metadata.
+func Handle[T any](handler func(context.Context, *Client, T) error) Handler {
+	return func(ctx context.Context, client *Client, payload any) error {
+		message, ok := payload.(T)
+		if !ok {
+			return fmt.Errorf("WEBSOCKET_INVALID_PAYLOAD: got %s, want %s", typeName(payload), typeNameOf[T]())
+		}
+		return handler(ctx, client, message)
+	}
 }
 
 // Adapter is the net/http-compatible upgrade boundary.
@@ -290,4 +323,16 @@ var nextClientID atomic.Uint64
 func defaultIDFactory(*http.Request) string {
 	id := nextClientID.Add(1)
 	return fmt.Sprintf("ws-%d", id)
+}
+
+func typeName(value any) string {
+	if value == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("%T", value)
+}
+
+func typeNameOf[T any]() string {
+	var zero *T
+	return reflect.TypeOf(zero).Elem().String()
 }
