@@ -39,7 +39,7 @@ func (c *validationController) GestController() gest.ControllerDefinition {
 			{
 				Method:  http.MethodPost,
 				Path:    "/users",
-				Handler: gest.JSON(c.Create),
+				Handler: gest.Handle(c.Create),
 			},
 		},
 	}

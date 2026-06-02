@@ -145,18 +145,18 @@ Exit criteria:
 - Generator work includes fixture tests for successful generation and diagnostics.
 - `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
-## Phase 3: Typed JSON Handlers And Binding
+## Phase 3: Typed Handlers And Binding
 
 Goal: make the preferred controller style work end to end.
 
 | ID | Status | Task | Description |
 | --- | --- | --- | --- |
-| P3.1 | Done | Implement `gest.JSON` | Support typed handlers returning `(*Res, error)` or `error`, with or without request DTOs. Map nil responses to no-content. |
+| P3.1 | Done | Implement `gest.Handle` | Support typed handlers returning `(*Res, error)` or `error`, with or without request DTOs. Map nil responses to no-content. |
 | P3.2 | Done | Implement request binding | Bind `param`, `query`, `header`, and JSON body tags into request DTO structs. |
 | P3.3 | Done | Add default values | Support simple `default` tags for query/header fields where conversion is unambiguous. |
 | P3.4 | Done | Add validation hook | Integrate an optional validator behind `Context.Validate`; keep validation module optional. |
 | P3.5 | Done | Add type conversion | Convert strings into common scalar types and return useful binding errors. |
-| P3.6 | Done | Expand generator handler output | Generate `gest.JSON(c.Method, gest.Status(...))` wrappers for typed JSON routes. |
+| P3.6 | Done | Expand generator handler output | Generate explicit `gest.Handle*` adapters for typed routes. |
 | P3.7 | Done | Add binding tests | Cover params, query, headers, JSON body, defaults, conversion failures, and validation failures. |
 
 Deferred:
@@ -294,7 +294,7 @@ Goal: add advanced features only after real user feedback.
 | P8.2 | Planned | Guard runtime and route metadata | Add DI-resolved guard factories and hand-written route guard metadata; auth, roles, and permissions remain user-owned policy. |
 | P8.3 | Planned | Import alias resolution | Add explicit `@GestImport` first, then existing Go imports. Defer package scan aliases until there is clear demand. |
 | P8.4 | Planned | Guard decorator MVP | Add `@Use(...)` only, resolving from existing Go imports or explicit `@GestImport`; do not add built-in `@Auth`, `@Roles`, or `@Permissions`. |
-| P8.5 | Planned | Typed handler performance checkpoint | Verify `gest.JSON(...)` and generated handlers resolve signature shape once at route-definition time, with no per-request signature reflection. |
+| P8.5 | Planned | Typed handler performance checkpoint | Verify `gest.Handle(...)` and generated explicit adapters resolve signature shape once at route-definition time, with no per-request signature reflection. |
 | P8.6 | Planned | Streaming | Add stream and SSE helpers while preserving raw `http.ResponseWriter` escape hatches. |
 | P8.7 | Planned | WebSockets | Add WebSocket routes and socket abstractions as an optional module. |
 | P8.8 | Planned | Queue and scheduler modules | Add job processors and cron/every decorators as optional ecosystem modules. |

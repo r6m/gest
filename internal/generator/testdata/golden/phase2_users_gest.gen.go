@@ -14,7 +14,7 @@ func (c *UserController) GestController() gest.ControllerDefinition {
 				Name:     "List",
 				Method:   "GET",
 				Path:     "/",
-				Handler:  gest.JSON(c.List, gest.Status(200)),
+				Handler:  gest.HandleContext(c.List, gest.Status(200)),
 				Statuses: []int{200},
 				Metadata: gest.RouteMetadata{
 					Summary: "List users",
@@ -24,7 +24,7 @@ func (c *UserController) GestController() gest.ControllerDefinition {
 				Name:     "Find",
 				Method:   "GET",
 				Path:     "/:id",
-				Handler:  gest.JSON(c.Find, gest.Status(200)),
+				Handler:  gest.HandleRequestResponse(c.Find, gest.Status(200)),
 				Request:  (*FindUserRequest)(nil),
 				Response: (*FindUserResponse)(nil),
 				Statuses: []int{200, 404},

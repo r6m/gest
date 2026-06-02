@@ -188,7 +188,7 @@ Consequences:
 
 Status: Accepted
 
-Typed handler shape must be resolved when route metadata is generated or when `gest.JSON(...)` is called, not on every request.
+Typed handler shape must be resolved when route metadata is generated or when `gest.Handle(...)` is called, not on every request.
 
 Rationale:
 
@@ -198,7 +198,7 @@ Rationale:
 
 Consequences:
 
-- `gest.JSON(...)` may inspect handler shape once while constructing a wrapper.
+- `gest.Handle(...)` may inspect handler shape once while constructing a handler adapter.
 - The returned `HandlerFunc` must not repeat signature inspection per request.
 - Generated code should emit the correct wrapper call directly.
 - Future specialized helpers are allowed if they improve clarity or performance without complicating user code.

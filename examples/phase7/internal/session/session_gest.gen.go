@@ -14,7 +14,7 @@ func (c *Controller) GestController() gest.ControllerDefinition {
 				Name:     "Create",
 				Method:   "POST",
 				Path:     "/",
-				Handler:  gest.JSON(c.Create, gest.Status(201)),
+				Handler:  gest.HandleRequestResponse(c.Create, gest.Status(201)),
 				Request:  (*CreateSessionRequest)(nil),
 				Response: (*CreateSessionResponse)(nil),
 				Statuses: []int{201},

@@ -239,7 +239,7 @@ func (c *HelloController) GestController() gest.ControllerDefinition {
 				Name:     "GetHello",
 				Method:   "GET",
 				Path:     "/hello",
-				Handler:  gest.JSON(c.GetHello),
+				Handler:  gest.HandleResponse(c.GetHello),
 				Response: (*HelloResponse)(nil),
 			},
 		},

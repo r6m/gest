@@ -137,7 +137,7 @@ func (c *typedRouteController) GestController() ControllerDefinition {
 				Name:     "Show",
 				Method:   http.MethodPost,
 				Path:     "/{id}",
-				Handler:  JSON(c.Show, Status(http.StatusCreated)),
+				Handler:  Handle(c.Show, Status(http.StatusCreated)),
 				Request:  (*typedRouteRequest)(nil),
 				Response: (*typedRouteResponse)(nil),
 				Statuses: []int{http.StatusCreated},

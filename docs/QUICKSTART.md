@@ -123,7 +123,7 @@ func (c *UserController) CreateUser(ctx *gest.Context, request *CreateUserReques
 }
 ```
 
-Route metadata is generated into `*_gest.gen.go`. Generated files are normal Go and call public runtime APIs such as `gest.JSON`.
+Route metadata is generated into `*_gest.gen.go`. Generated files are normal Go and call public runtime APIs such as `gest.HandleRequestResponse` and `gest.Status`.
 
 ## Generate And Build
 

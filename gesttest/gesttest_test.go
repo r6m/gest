@@ -86,7 +86,7 @@ func (c *userController) GestController() gest.ControllerDefinition {
 				Name:    "Create",
 				Method:  http.MethodPost,
 				Path:    "/",
-				Handler: gest.JSON(c.Create, gest.Status(http.StatusCreated)),
+				Handler: gest.Handle(c.Create, gest.Status(http.StatusCreated)),
 			},
 		},
 	}

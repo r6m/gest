@@ -10,35 +10,117 @@ var (
 	errorType          = reflect.TypeOf((*error)(nil)).Elem()
 )
 
-// JSON wraps a typed JSON controller handler as a runtime HandlerFunc.
-func JSON(handler any, options ...HandlerOption) HandlerFunc {
+// Handle wraps a typed controller handler as a runtime HandlerFunc.
+func Handle(handler any, options ...HandlerOption) HandlerFunc {
 	config := newHandlerConfig(options...)
 	handlerValue := reflect.ValueOf(handler)
 	if !handlerValue.IsValid() {
 		return func(ctx *Context) error {
-			return Internal("unsupported JSON handler signature <nil>")
+			return Internal("unsupported handler signature <nil>")
 		}
 	}
 	if handlerValue.Kind() == reflect.Func && handlerValue.IsNil() {
 		return func(ctx *Context) error {
-			return Internal("unsupported JSON handler signature <nil>")
+			return Internal("unsupported handler signature <nil>")
 		}
 	}
 	handlerType := handlerValue.Type()
 
-	return func(ctx *Context) error {
-		switch {
-		case isContextResponseErrorHandler(handlerType):
+	switch {
+	case isContextResponseErrorHandler(handlerType):
+		return func(ctx *Context) error {
 			return callContextResponseErrorHandler(handlerValue, ctx, config)
-		case isContextErrorHandler(handlerType):
-			return callContextErrorHandler(handlerValue, ctx, config)
-		case isRequestErrorHandler(handlerType):
-			return callRequestErrorHandler(handlerValue, ctx, config)
-		case isRequestResponseErrorHandler(handlerType):
-			return callRequestResponseErrorHandler(handlerValue, ctx, config)
-		default:
-			return Internal(fmt.Sprintf("unsupported JSON handler signature %s", handlerType))
 		}
+	case isContextErrorHandler(handlerType):
+		return func(ctx *Context) error {
+			return callContextErrorHandler(handlerValue, ctx, config)
+		}
+	case isRequestErrorHandler(handlerType):
+		return func(ctx *Context) error {
+			return callRequestErrorHandler(handlerValue, ctx, config)
+		}
+	case isRequestResponseErrorHandler(handlerType):
+		return func(ctx *Context) error {
+			return callRequestResponseErrorHandler(handlerValue, ctx, config)
+		}
+	default:
+		return func(ctx *Context) error {
+			return Internal(fmt.Sprintf("unsupported handler signature %s", handlerType))
+		}
+	}
+}
+
+func HandleContext(handler func(ctx *Context) error, options ...HandlerOption) HandlerFunc {
+	config := newHandlerConfig(options...)
+
+	return func(ctx *Context) error {
+		if err := handler(ctx); err != nil {
+			return err
+		}
+
+		return ctx.NoContent(config.emptyStatus)
+	}
+}
+
+func HandleRequest[Req any](handler func(ctx *Context, req *Req) error, options ...HandlerOption) HandlerFunc {
+	config := newHandlerConfig(options...)
+
+	return func(ctx *Context) error {
+		req := new(Req)
+		if err := ctx.BindRequest(req); err != nil {
+			return err
+		}
+		if err := ctx.Validate(req); err != nil {
+			return err
+		}
+		if err := handler(ctx, req); err != nil {
+			return err
+		}
+
+		return ctx.NoContent(config.emptyStatus)
+	}
+}
+
+func HandleResponse[Res any](handler func(ctx *Context) (*Res, error), options ...HandlerOption) HandlerFunc {
+	config := newHandlerConfig(options...)
+
+	return func(ctx *Context) error {
+		response, err := handler(ctx)
+		if err != nil {
+			return err
+		}
+		if response == nil {
+			return ctx.NoContent(config.emptyStatus)
+		}
+
+		return ctx.JSON(config.successStatus, response)
+	}
+}
+
+func HandleRequestResponse[Req any, Res any](
+	handler func(ctx *Context, req *Req) (*Res, error),
+	options ...HandlerOption,
+) HandlerFunc {
+	config := newHandlerConfig(options...)
+
+	return func(ctx *Context) error {
+		req := new(Req)
+		if err := ctx.BindRequest(req); err != nil {
+			return err
+		}
+		if err := ctx.Validate(req); err != nil {
+			return err
+		}
+
+		response, err := handler(ctx, req)
+		if err != nil {
+			return err
+		}
+		if response == nil {
+			return ctx.NoContent(config.emptyStatus)
+		}
+
+		return ctx.JSON(config.successStatus, response)
 	}
 }
 
@@ -151,7 +233,7 @@ func errorValue(value reflect.Value) error {
 
 	err, ok := value.Interface().(error)
 	if !ok {
-		return Internal("JSON handler returned a non-error value")
+		return Internal("handler returned a non-error value")
 	}
 
 	return err

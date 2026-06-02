@@ -93,7 +93,7 @@ These rules are strict. Any implementation that violates them is out of scope un
 
 1. Generated code must be boring.
    - Generated `*_gest.gen.go` files must be readable, deterministic, gofmt-formatted Go.
-   - Generated code must call public runtime APIs such as `gest.JSON(...)`, `gest.Status(...)`, and controller methods directly.
+   - Generated code must call public runtime APIs such as `gest.HandleContext(...)`, `gest.HandleRequestResponse(...)`, `gest.Status(...)`, and controller methods directly.
    - Generated code must not rely on hidden global registries, `init()` side effects, runtime source scanning, or reflection-only route discovery.
 
 2. Runtime and generator must stay separate.
@@ -504,7 +504,7 @@ func (c *ReportController) GestController() gest.ControllerDefinition {
 				Method: "GET",
 				Path:   "/:id",
 
-				Handler: gest.JSON(
+				Handler: gest.HandleRequestResponse(
 					c.FindReport,
 					gest.Status(200),
 				),
@@ -727,20 +727,20 @@ type FindUserResponse struct {
 }
 ```
 
-## Handler wrapper
+## Handler Adapter
 
 Typed handler adaptation must be resolved when routes are defined, not by inspecting handler signatures on every request.
 
-`gest.JSON(...)` adapts supported typed handlers into `HandlerFunc` once. It may use reflection or type switches during wrapper construction, but the returned `HandlerFunc` must not repeat signature inspection per request.
+`gest.Handle(...)` adapts supported typed handlers into `HandlerFunc` once. It may use reflection or type switches during adapter construction, but the returned `HandlerFunc` must not repeat signature inspection per request.
 
-For handlers with a request DTO, the wrapper binds params, query values, headers, and JSON body fields into `*Req`, then validates it before calling the controller method.
+For handlers with a request DTO, the adapter binds params, query values, headers, and JSON body fields into `*Req`, then validates it before calling the controller method.
 
 For handlers that return `(*Res, error)`, a non-nil response is written as JSON with the configured success status. A nil response writes no content with the configured empty status.
 
-Generated controller metadata should choose the appropriate wrapper at generation time:
+Typed handlers return JSON responses by default when they return a non-nil response DTO. Generated controller metadata should choose the appropriate explicit adapter at generation time:
 
 ```go
-Handler: gest.JSON(c.FindUser, gest.Status(200))
+Handler: gest.HandleRequestResponse(c.FindUser, gest.Status(200))
 ```
 
 The generated file should never emit a generic runtime dispatcher that re-checks the controller method signature on every request.
@@ -2180,7 +2180,7 @@ Good errors are a product feature.
 
 ## Phase 3: Typed Handlers
 
-- `gest.JSON(...)`
+- `gest.Handle(...)`
 - DTO binding
 - path/query/header/body tags
 - validation integration

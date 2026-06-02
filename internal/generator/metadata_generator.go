@@ -252,7 +252,9 @@ func writeRouteMetadata(buffer *bytes.Buffer, controller Controller, route Route
 }
 
 func writeHandlerMetadata(buffer *bytes.Buffer, route Route) {
-	buffer.WriteString("\t\t\t\tHandler: gest.JSON(c.")
+	buffer.WriteString("\t\t\t\tHandler: gest.")
+	buffer.WriteString(handlerAdapter(route))
+	buffer.WriteString("(c.")
 	buffer.WriteString(route.HandlerName)
 	if status, ok := successStatus(route.Statuses); ok {
 		buffer.WriteString(", gest.Status(")
@@ -260,6 +262,19 @@ func writeHandlerMetadata(buffer *bytes.Buffer, route Route) {
 		buffer.WriteString(")")
 	}
 	buffer.WriteString("),\n")
+}
+
+func handlerAdapter(route Route) string {
+	switch {
+	case route.RequestType != "" && route.ResponseType != "":
+		return "HandleRequestResponse"
+	case route.RequestType != "":
+		return "HandleRequest"
+	case route.ResponseType != "":
+		return "HandleResponse"
+	default:
+		return "HandleContext"
+	}
 }
 
 func successStatus(statuses []int) (int, bool) {

@@ -45,7 +45,7 @@ func (c *exampleUserController) GestController() ControllerDefinition {
 				Name:     "Create",
 				Method:   http.MethodPost,
 				Path:     "",
-				Handler:  JSON(c.Create, Status(http.StatusCreated)),
+				Handler:  Handle(c.Create, Status(http.StatusCreated)),
 				Request:  (*exampleCreateUserRequest)(nil),
 				Response: (*exampleUserResponse)(nil),
 				Statuses: []int{http.StatusCreated},

@@ -18,8 +18,115 @@ type jsonResponse struct {
 	Name string `json:"name"`
 }
 
+func TestHandleContextReturnsNoContentOnNilError(t *testing.T) {
+	handler := HandleContext(func(ctx *Context) error {
+		return nil
+	})
+
+	recorder, request := newJSONTestContext()
+	if err := handler(NewContext(recorder, request)); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+	if recorder.Body.Len() != 0 {
+		t.Fatalf("body = %q, want empty", recorder.Body.String())
+	}
+}
+
+func TestHandleRequestBindsValidatesAndReturnsNoContent(t *testing.T) {
+	type requestDTO struct {
+		ID   string `param:"id"`
+		Name string `json:"name"`
+	}
+
+	var got requestDTO
+	handler := HandleRequest(func(ctx *Context, req *requestDTO) error {
+		got = *req
+		return nil
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/users/1", strings.NewReader(`{"name":"Ada"}`))
+	context := NewContext(recorder, request)
+	context.SetParam("id", "user-1")
+	validator := &recordingValidator{}
+	context.SetValidator(validator)
+
+	if err := handler(context); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	if got.ID != "user-1" || got.Name != "Ada" {
+		t.Fatalf("request = %#v, want bound request", got)
+	}
+	if validator.calls != 1 {
+		t.Fatalf("validator calls = %d, want 1", validator.calls)
+	}
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+}
+
+func TestHandleResponseWritesJSONResponse(t *testing.T) {
+	handler := HandleResponse(func(ctx *Context) (*jsonResponse, error) {
+		return &jsonResponse{Name: "Ada"}, nil
+	})
+
+	recorder, request := newJSONTestContext()
+	if err := handler(NewContext(recorder, request)); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	var body jsonResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Name != "Ada" {
+		t.Fatalf("Name = %q, want Ada", body.Name)
+	}
+}
+
+func TestHandleRequestResponseBindsValidatesAndWritesJSONResponse(t *testing.T) {
+	type requestDTO struct {
+		Name string `json:"name"`
+	}
+
+	handler := HandleRequestResponse(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
+		return &jsonResponse{Name: req.Name}, nil
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"name":"Ada"}`))
+	context := NewContext(recorder, request)
+	validator := &recordingValidator{}
+	context.SetValidator(validator)
+
+	if err := handler(context); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	if validator.calls != 1 {
+		t.Fatalf("validator calls = %d, want 1", validator.calls)
+	}
+
+	var body jsonResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Name != "Ada" {
+		t.Fatalf("Name = %q, want Ada", body.Name)
+	}
+}
+
 func TestJSONResponseErrorHandlerWritesDefaultStatusAndJSON(t *testing.T) {
-	handler := JSON(func(ctx *Context, req *jsonRequest) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context, req *jsonRequest) (*jsonResponse, error) {
 		if req == nil {
 			t.Fatal("request is nil")
 		}
@@ -46,7 +153,7 @@ func TestJSONResponseErrorHandlerWritesDefaultStatusAndJSON(t *testing.T) {
 }
 
 func TestJSONStatusOptionChangesSuccessStatus(t *testing.T) {
-	handler := JSON(func(ctx *Context, req *jsonRequest) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context, req *jsonRequest) (*jsonResponse, error) {
 		return &jsonResponse{Name: "Ada"}, nil
 	}, Status(http.StatusCreated))
 
@@ -61,7 +168,7 @@ func TestJSONStatusOptionChangesSuccessStatus(t *testing.T) {
 }
 
 func TestJSONContextResponseErrorHandlerWritesDefaultStatusAndJSON(t *testing.T) {
-	handler := JSON(func(ctx *Context) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context) (*jsonResponse, error) {
 		return &jsonResponse{Name: "Ada"}, nil
 	})
 
@@ -84,7 +191,7 @@ func TestJSONContextResponseErrorHandlerWritesDefaultStatusAndJSON(t *testing.T)
 }
 
 func TestJSONContextResponseErrorHandlerUsesStatusOption(t *testing.T) {
-	handler := JSON(func(ctx *Context) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context) (*jsonResponse, error) {
 		return &jsonResponse{Name: "Ada"}, nil
 	}, Status(http.StatusCreated))
 
@@ -99,7 +206,7 @@ func TestJSONContextResponseErrorHandlerUsesStatusOption(t *testing.T) {
 }
 
 func TestJSONNilResponseReturnsNoContent(t *testing.T) {
-	handler := JSON(func(ctx *Context, req *jsonRequest) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context, req *jsonRequest) (*jsonResponse, error) {
 		return nil, nil
 	})
 
@@ -117,7 +224,7 @@ func TestJSONNilResponseReturnsNoContent(t *testing.T) {
 }
 
 func TestJSONContextResponseErrorHandlerNilResponseReturnsNoContent(t *testing.T) {
-	handler := JSON(func(ctx *Context) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context) (*jsonResponse, error) {
 		return nil, nil
 	})
 
@@ -135,7 +242,7 @@ func TestJSONContextResponseErrorHandlerNilResponseReturnsNoContent(t *testing.T
 }
 
 func TestJSONHandlerErrorMapsThroughHTTPErrorResponse(t *testing.T) {
-	handler := JSON(func(ctx *Context, req *jsonRequest) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context, req *jsonRequest) (*jsonResponse, error) {
 		return nil, NotFound("user missing")
 	})
 
@@ -164,7 +271,7 @@ func TestJSONHandlerErrorMapsThroughHTTPErrorResponse(t *testing.T) {
 }
 
 func TestJSONContextResponseErrorHandlerErrorMapsThroughHTTPErrorResponse(t *testing.T) {
-	handler := JSON(func(ctx *Context) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context) (*jsonResponse, error) {
 		return nil, NotFound("user missing")
 	})
 
@@ -193,7 +300,7 @@ func TestJSONContextResponseErrorHandlerErrorMapsThroughHTTPErrorResponse(t *tes
 }
 
 func TestJSONRequestErrorHandlerReturnsNoContentOnNilError(t *testing.T) {
-	handler := JSON(func(ctx *Context, req *jsonRequest) error {
+	handler := Handle(func(ctx *Context, req *jsonRequest) error {
 		if req == nil {
 			t.Fatal("request is nil")
 		}
@@ -222,7 +329,7 @@ func TestJSONBindsRequestBeforeCallingHandler(t *testing.T) {
 		Name    string `json:"name"`
 	}
 
-	handler := JSON(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
 		return &jsonResponse{Name: req.ID + "|" + req.Name + "|page-" + strconv.Itoa(req.Page) + "|" + req.Request}, nil
 	})
 
@@ -251,7 +358,7 @@ func TestJSONBindingErrorPreventsHandlerExecution(t *testing.T) {
 	}
 
 	called := false
-	handler := JSON(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
 		called = true
 		return &jsonResponse{Name: "unexpected"}, nil
 	})
@@ -287,7 +394,7 @@ func TestJSONValidationErrorPreventsHandlerExecution(t *testing.T) {
 	}
 
 	called := false
-	handler := JSON(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
 		called = true
 		return &jsonResponse{Name: "unexpected"}, nil
 	})
@@ -323,7 +430,7 @@ func TestJSONValidationErrorMapsThroughHTTPErrorResponse(t *testing.T) {
 		Name string `json:"name"`
 	}
 
-	handler := JSON(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
+	handler := Handle(func(ctx *Context, req *requestDTO) (*jsonResponse, error) {
 		return &jsonResponse{Name: "unexpected"}, nil
 	})
 
@@ -359,7 +466,7 @@ func TestJSONValidationErrorMapsThroughHTTPErrorResponse(t *testing.T) {
 }
 
 func TestJSONContextErrorHandlerReturnsNoContentOnNilError(t *testing.T) {
-	handler := JSON(func(ctx *Context) error {
+	handler := Handle(func(ctx *Context) error {
 		return nil
 	})
 

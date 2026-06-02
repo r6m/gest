@@ -85,7 +85,7 @@ func (c *UserController) GestController() gest.ControllerDefinition {
 				Name:    "FindUser",
 				Method:  "GET",
 				Path:    "/:id",
-				Handler: gest.JSON(c.FindUser, gest.Status(200)),
+				Handler: gest.HandleRequestResponse(c.FindUser, gest.Status(200)),
 			},
 		},
 	}
@@ -205,7 +205,7 @@ JWT must not assume a user database, repository, ORM, or user model.
 
 Gest must not ship built-in auth, role, or permission modules. Auth policy is user-owned application code. Gest may provide guard mechanics, route metadata, bearer-token helpers, and optional JWT utilities, but it must not own user identity, roles, permissions, repositories, or policy semantics.
 
-Typed handler adaptation must happen at route-definition time. Generated metadata and public wrapper helpers such as `gest.JSON(...)` may inspect the handler shape while creating a `HandlerFunc`, but the resulting handler must not perform signature reflection on every request.
+Typed handler adaptation must happen at route-definition time. Generated metadata should use explicit helpers such as `gest.HandleRequestResponse(...)`. Public convenience adapters such as `gest.Handle(...)` may inspect the handler shape while creating a `HandlerFunc`, but the resulting handler must not perform signature reflection on every request.
 
 ## Error Contract
 
