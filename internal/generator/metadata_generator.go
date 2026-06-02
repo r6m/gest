@@ -57,6 +57,37 @@ func GenerateMetadataFiles(controllers []Controller) ([]GeneratedFile, error) {
 	return files, nil
 }
 
+// GenerateEventMetadataFiles emits deterministic Gest event listener metadata files.
+func GenerateEventMetadataFiles(listeners []Listener) ([]GeneratedFile, error) {
+	listenersByDir := make(map[string][]Listener)
+	for _, listener := range listeners {
+		listenersByDir[listener.Package.Dir] = append(listenersByDir[listener.Package.Dir], listener)
+	}
+
+	dirs := make([]string, 0, len(listenersByDir))
+	for dir := range listenersByDir {
+		dirs = append(dirs, dir)
+	}
+	slices.Sort(dirs)
+
+	files := make([]GeneratedFile, 0, len(dirs))
+	for _, dir := range dirs {
+		pkgListeners := listenersByDir[dir]
+		sortListeners(pkgListeners)
+		content, err := generatePackageEventMetadata(pkgListeners)
+		if err != nil {
+			return nil, err
+		}
+		pkg := pkgListeners[0].Package
+		files = append(files, GeneratedFile{
+			Path:    filepath.Join(pkg.Dir, pkg.Name+"_events.gen.go"),
+			Package: pkg,
+			Content: content,
+		})
+	}
+	return files, nil
+}
+
 // WriteGeneratedFiles formats and writes generated files, skipping unchanged files.
 func WriteGeneratedFiles(files []GeneratedFile) ([]WriteResult, []Diagnostic) {
 	results := make([]WriteResult, 0, len(files))
@@ -144,6 +175,54 @@ func writeGeneratedImports(buffer *bytes.Buffer, controllers []Controller) {
 		buffer.WriteString("\n")
 	}
 	buffer.WriteString(")\n\n")
+}
+
+func generatePackageEventMetadata(listeners []Listener) ([]byte, error) {
+	if len(listeners) == 0 {
+		return nil, nil
+	}
+
+	var buffer bytes.Buffer
+	pkg := listeners[0].Package
+	buffer.WriteString(generatedHeader)
+	buffer.WriteString("\npackage ")
+	buffer.WriteString(pkg.Name)
+	buffer.WriteString("\n\n")
+	buffer.WriteString("import \"github.com/r6m/gest/modules/events\"\n\n")
+	for index, listener := range listeners {
+		if index > 0 {
+			buffer.WriteString("\n")
+		}
+		writeEventListenerMetadata(&buffer, listener)
+	}
+
+	formatted, err := format.Source(buffer.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("format generated event metadata for package %q: %w", pkg.ImportPath, err)
+	}
+	return formatted, nil
+}
+
+func writeEventListenerMetadata(buffer *bytes.Buffer, listener Listener) {
+	buffer.WriteString("func (l *")
+	buffer.WriteString(listener.TypeName)
+	buffer.WriteString(") GestEventListener() events.ListenerDefinition {\n")
+	buffer.WriteString("\treturn events.ListenerDefinition{\n")
+	buffer.WriteString("\t\tName: ")
+	buffer.WriteString(strconv.Quote(listener.TypeName))
+	buffer.WriteString(",\n")
+	buffer.WriteString("\t\tListeners: []events.EventListener{\n")
+	buffer.WriteString("\t\t\t{\n")
+	buffer.WriteString("\t\t\t\tEvent: ")
+	buffer.WriteString(strconv.Quote(listener.EventName))
+	buffer.WriteString(",\n")
+	buffer.WriteString("\t\t\t\tHandle: events.Handle[")
+	buffer.WriteString(listener.EventType)
+	buffer.WriteString("](l.Handle),\n")
+	buffer.WriteString("\t\t\t},\n")
+	buffer.WriteString("\t\t},\n")
+	buffer.WriteString("\t}\n")
+	buffer.WriteString("}\n")
 }
 
 type generatedImport struct {

@@ -57,6 +57,33 @@ func TestGenerateServiceCreatesServiceFile(t *testing.T) {
 	assertOutputContains(t, testContent, "func TestNewTeamService")
 }
 
+func TestGenerateListenerCreatesListenerFile(t *testing.T) {
+	root := moduleFixture(t, nil)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "listener", "project/team", "--no-update-module"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%q", code, stderr.String())
+	}
+	content := readFile(t, filepath.Join(root, "internal", "project", "team", "team.listener.go"))
+	assertOutputContains(t, stdout.String(), "CREATE internal/project/team/team.listener.go", "SKIP parent module update")
+	assertOutputContains(t, content,
+		"package team",
+		`// @OnEvent("project.team.created")`,
+		"type TeamListener struct",
+		"func NewTeamListener(bus *events.Bus) *TeamListener",
+		"func (l *TeamListener) OnModuleInit(ctx context.Context) error",
+		"func (l *TeamListener) Handle(ctx context.Context, event TeamEvent) error",
+	)
+	testContent := readFile(t, filepath.Join(root, "internal", "project", "team", "team.listener_test.go"))
+	assertOutputContains(t, stdout.String(), "CREATE internal/project/team/team.listener_test.go")
+	assertOutputContains(t, testContent, "func TestNewTeamListener")
+}
+
 func TestGenerateControllerNoTestSkipsTestFile(t *testing.T) {
 	root := moduleFixture(t, nil)
 	var stdout bytes.Buffer
@@ -117,6 +144,28 @@ func TestGenerateServiceUpdatesModuleProviders(t *testing.T) {
 		"gest.Provide(NewTeamService),",
 	)
 	assertOutputExcludes(t, module, removedExportCall())
+}
+
+func TestGenerateListenerUpdatesModuleProviders(t *testing.T) {
+	root := moduleFixture(t, map[string]string{
+		"internal/project/team/team.module.go": moduleSource("team", "project.team"),
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "listener", "project/team"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	module := readFile(t, filepath.Join(root, "internal", "project", "team", "team.module.go"))
+	assertOutputContains(t, stdout.String(), "UPDATE internal/project/team/team.module.go")
+	assertOutputContains(t, module,
+		"Providers: gest.Providers(",
+		"gest.Provide(NewTeamListener),",
+	)
 }
 
 func TestGenerateComponentDryRunWritesNothing(t *testing.T) {

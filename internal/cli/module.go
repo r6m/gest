@@ -48,6 +48,10 @@ func (c *CLI) runGenerateService(ctx context.Context, args []string) error {
 	return c.runGenerateComponent(ctx, args, componentService)
 }
 
+func (c *CLI) runGenerateListener(ctx context.Context, args []string) error {
+	return c.runGenerateComponent(ctx, args, componentListener)
+}
+
 func (c *CLI) runGenerateResource(ctx context.Context, args []string) error {
 	select {
 	case <-ctx.Done():
@@ -108,6 +112,7 @@ type componentKind string
 const (
 	componentController componentKind = "controller"
 	componentService    componentKind = "service"
+	componentListener   componentKind = "listener"
 )
 
 type componentOptions struct {
@@ -487,6 +492,39 @@ func New%sService() *%sService {
 	return &%sService{}
 }
 `, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix)
+	case componentListener:
+		source = fmt.Sprintf(`package %s
+
+import (
+	"context"
+
+	"github.com/r6m/gest/modules/events"
+)
+
+type %sEvent struct {
+	ID string
+}
+
+// @OnEvent("%s.created")
+type %sListener struct {
+	bus *events.Bus
+}
+
+func New%sListener(bus *events.Bus) *%sListener {
+	return &%sListener{bus: bus}
+}
+
+func (l *%sListener) OnModuleInit(ctx context.Context) error {
+	_ = ctx
+	return events.RegisterListener(l.bus, l)
+}
+
+func (l *%sListener) Handle(ctx context.Context, event %sEvent) error {
+	_ = ctx
+	_ = event
+	return nil
+}
+`, componentPath.packageName, componentPath.typePrefix, eventNamePrefix(componentPath), componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix)
 	default:
 		return nil, fmt.Errorf("unknown component kind %q", kind)
 	}
@@ -520,6 +558,30 @@ func TestNew%sService(t *testing.T) {
 	}
 }
 `, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix)
+	case componentListener:
+		source = fmt.Sprintf(`package %s
+
+import (
+	"context"
+	"testing"
+
+	"github.com/r6m/gest/modules/events"
+)
+
+func TestNew%sListener(t *testing.T) {
+	bus := events.NewBus()
+	listener := New%sListener(bus)
+	if listener == nil {
+		t.Fatal("listener is nil")
+	}
+	if err := listener.OnModuleInit(context.Background()); err != nil {
+		t.Fatalf("OnModuleInit returned error: %%v", err)
+	}
+	if err := bus.Emit(context.Background(), "%s.created", %sEvent{ID: "sample"}); err != nil {
+		t.Fatalf("Emit returned error: %%v", err)
+	}
+}
+`, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix, eventNamePrefix(componentPath), componentPath.typePrefix)
 	default:
 		return nil, fmt.Errorf("unknown component kind %q", kind)
 	}
@@ -1018,9 +1080,15 @@ func providerCall(componentPath generatorPath, kind componentKind) string {
 		return "gest.Controller(New" + componentPath.typePrefix + "Controller)"
 	case componentService:
 		return "gest.Provide(New" + componentPath.typePrefix + "Service)"
+	case componentListener:
+		return "gest.Provide(New" + componentPath.typePrefix + "Listener)"
 	default:
 		return ""
 	}
+}
+
+func eventNamePrefix(componentPath generatorPath) string {
+	return strings.ReplaceAll(componentPath.moduleName, "_", ".")
 }
 
 func importPathFor(workDir string, modulePath generatorPath) (string, error) {

@@ -102,11 +102,21 @@ func runGenerate(root string, options generateRunOptions) (generateResult, error
 	if err != nil {
 		return generateResult{}, err
 	}
+	listeners, listenerDiagnostics, err := generator.ParseEventListeners(packages)
+	if err != nil {
+		return generateResult{}, err
+	}
+	diagnostics = append(diagnostics, listenerDiagnostics...)
 
 	files, err := generator.GenerateMetadataFiles(controllers)
 	if err != nil {
 		return generateResult{}, err
 	}
+	eventFiles, err := generator.GenerateEventMetadataFiles(listeners)
+	if err != nil {
+		return generateResult{}, err
+	}
+	files = append(files, eventFiles...)
 
 	result := generateResult{
 		scannedPackages: len(packages),

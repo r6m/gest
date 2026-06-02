@@ -52,6 +52,17 @@ type GuardReference struct {
 	Column     int
 }
 
+// Listener describes event listener metadata parsed from @OnEvent.
+type Listener struct {
+	Package   Package
+	TypeName  string
+	EventName string
+	EventType string
+	File      string
+	Line      int
+	Column    int
+}
+
 // ParseControllers parses controller-level MVP decorators from scanned packages.
 func ParseControllers(packages []Package) ([]Controller, []Diagnostic, error) {
 	controllers := make([]Controller, 0)
@@ -103,6 +114,121 @@ func ParseControllerRoutes(packages []Package) ([]Controller, []Diagnostic, erro
 	sortControllers(controllers)
 	sortDiagnostics(diagnostics)
 	return controllers, diagnostics, nil
+}
+
+// ParseEventListeners parses event listener decorators from scanned packages.
+func ParseEventListeners(packages []Package) ([]Listener, []Diagnostic, error) {
+	listeners := make([]Listener, 0)
+	diagnostics := make([]Diagnostic, 0)
+	for _, pkg := range packages {
+		for _, file := range pkg.Files {
+			fileListeners, fileDiagnostics, err := parseEventListenerFile(pkg, file)
+			if err != nil {
+				return nil, nil, err
+			}
+			listeners = append(listeners, fileListeners...)
+			diagnostics = append(diagnostics, fileDiagnostics...)
+		}
+	}
+	sortListeners(listeners)
+	sortDiagnostics(diagnostics)
+	return listeners, diagnostics, nil
+}
+
+func parseEventListenerFile(pkg Package, file string) ([]Listener, []Diagnostic, error) {
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, file, nil, parser.ParseComments)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse Go file %q: %w", file, err)
+	}
+
+	typeEvents := make(map[string]decorator)
+	diagnostics := make([]Diagnostic, 0)
+	for _, declaration := range parsed.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Doc == nil {
+			continue
+		}
+		decorators := decoratorsFromComments(fileSet, general.Doc)
+		if len(decorators) == 0 {
+			continue
+		}
+		typeName, isSingleType := singleTypeName(general)
+		for _, decorator := range decorators {
+			if decorator.Name != "OnEvent" {
+				continue
+			}
+			if !isSingleType {
+				diagnostics = append(diagnostics, invalidTargetDiagnostic(decorator, typeName))
+				continue
+			}
+			if _, ok := parseSingleStringArgument(decorator.Raw); !ok {
+				diagnostics = append(diagnostics, invalidSyntaxDiagnostic(
+					decorator,
+					"@OnEvent requires a single string event name argument",
+					`use @OnEvent("user.created")`,
+				))
+				continue
+			}
+			typeEvents[typeName] = decorator
+		}
+	}
+
+	listeners := make([]Listener, 0, len(typeEvents))
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name == nil || function.Name.Name != "Handle" {
+			continue
+		}
+		receiver := receiverTypeName(function)
+		decorator, ok := typeEvents[receiver]
+		if !ok {
+			continue
+		}
+		eventName, _ := parseSingleStringArgument(decorator.Raw)
+		eventType, ok := validateEventHandlerSignature(function)
+		if !ok {
+			diagnostics = append(diagnostics, invalidEventHandlerSignatureDiagnostic(fileSet, function))
+			delete(typeEvents, receiver)
+			continue
+		}
+		listeners = append(listeners, Listener{
+			Package:   pkg,
+			TypeName:  receiver,
+			EventName: eventName,
+			EventType: eventType,
+			File:      decorator.File,
+			Line:      decorator.Line,
+			Column:    decorator.Column,
+		})
+		delete(typeEvents, receiver)
+	}
+	for typeName, decorator := range typeEvents {
+		diagnostics = append(diagnostics, Diagnostic{
+			Severity: SeverityError,
+			Code:     DiagnosticInvalidHandlerSignature,
+			Message:  "@OnEvent listener " + typeName + " must define Handle(ctx context.Context, event EventType) error",
+			Hint:     "add a Handle method with context.Context, one event parameter, and error return",
+			File:     decorator.File,
+			Line:     decorator.Line,
+			Column:   decorator.Column,
+		})
+	}
+	return listeners, diagnostics, nil
+}
+
+func invalidEventHandlerSignatureDiagnostic(fileSet *token.FileSet, function *ast.FuncDecl) Diagnostic {
+	position := fileSet.Position(function.Pos())
+	return Diagnostic{
+		Severity: SeverityError,
+		Code:     DiagnosticInvalidHandlerSignature,
+		Message:  "invalid event listener signature " + handlerSignatureString(function),
+		Hint:     "accepted signature is func(ctx context.Context, event EventType) error",
+		File:     position.Filename,
+		Line:     position.Line,
+		Column:   position.Column,
+		Target:   function.Name.Name,
+	}
 }
 
 func parseControllerRoutesFile(pkg Package, file string) ([]Controller, []Diagnostic, error) {
@@ -268,6 +394,8 @@ func parseControllersFromAST(pkg Package, file string, fileSet *token.FileSet, p
 					}
 					controller.Guards = append(controller.Guards, guard)
 				}
+			case "OnEvent":
+				continue
 			default:
 				diagnostics = append(diagnostics, unknownDecoratorDiagnostic(decorator))
 			}
@@ -704,6 +832,35 @@ func isErrorType(expression ast.Expr) bool {
 	return ok && ident.Name == "error"
 }
 
+func validateEventHandlerSignature(function *ast.FuncDecl) (string, bool) {
+	params := function.Type.Params
+	if params == nil || fieldCount(params.List) != 2 {
+		return "", false
+	}
+	flattenedParams := flattenFields(params.List)
+	if len(flattenedParams) != 2 || !isContextType(flattenedParams[0]) {
+		return "", false
+	}
+	eventType := exprString(flattenedParams[1])
+	if eventType == "" {
+		return "", false
+	}
+	results := flattenResultFields(function.Type.Results)
+	if len(results) != 1 || !isErrorType(results[0]) {
+		return "", false
+	}
+	return eventType, true
+}
+
+func isContextType(expression ast.Expr) bool {
+	selector, ok := expression.(*ast.SelectorExpr)
+	if !ok || selector.Sel == nil || selector.Sel.Name != "Context" {
+		return false
+	}
+	packageName, ok := selector.X.(*ast.Ident)
+	return ok && packageName.Name == "context"
+}
+
 func invalidHandlerSignatureDiagnostic(fileSet *token.FileSet, function *ast.FuncDecl) Diagnostic {
 	position := fileSet.Position(function.Pos())
 	return Diagnostic{
@@ -922,6 +1079,30 @@ func sortRoutes(routes []Route) {
 			return -1
 		}
 		if a.HandlerName > b.HandlerName {
+			return 1
+		}
+		return 0
+	})
+}
+
+func sortListeners(listeners []Listener) {
+	slices.SortFunc(listeners, func(a Listener, b Listener) int {
+		if filepath.ToSlash(a.File) < filepath.ToSlash(b.File) {
+			return -1
+		}
+		if filepath.ToSlash(a.File) > filepath.ToSlash(b.File) {
+			return 1
+		}
+		if a.Line < b.Line {
+			return -1
+		}
+		if a.Line > b.Line {
+			return 1
+		}
+		if a.TypeName < b.TypeName {
+			return -1
+		}
+		if a.TypeName > b.TypeName {
 			return 1
 		}
 		return 0
