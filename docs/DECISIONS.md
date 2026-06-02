@@ -120,13 +120,13 @@ Consequences:
 
 Status: Accepted
 
-Phase 7 official modules are `config`, `logger`, `validation`, `health`, and `jwt`. `modules/auth` is deferred until guard/runtime auth semantics exist.
+Phase 7 official modules are `config`, `logger`, `validation`, `health`, and `jwt`. Gest does not ship `modules/auth`.
 
 Rationale:
 
 - These modules prove the extension model without taking ownership of application infrastructure.
 - Config, logging, validation, health, and JWT are common enough to provide as conveniences.
-- Auth must remain conservative because user identity storage is application-specific, and it should wait for explicit guard/runtime semantics.
+- Auth, roles, and permissions are application policy and should be user-owned modules.
 
 Consequences:
 
@@ -135,6 +135,7 @@ Consequences:
 - No built-in database or ORM module.
 - Cache, throttle, events, queues, scheduler, metrics, tracing, and mailer remain deferred.
 - Official modules must use normal module/provider APIs and be replaceable by user modules.
+- Gest may provide guard mechanics and JWT utility, but not an auth platform.
 
 ## ADR-0010: Typed App Config Uses User-Owned Structs
 
@@ -162,6 +163,45 @@ Consequences:
 - `modules/config` provides `*config.Service`.
 - `modules/config` may also provide loaded user structs such as `*AppConfig`.
 - Config module is separate from CLI `gest.yaml` config loading.
+
+## ADR-0011: Auth Is User-Owned
+
+Status: Accepted
+
+Gest does not provide built-in auth, role, or permission modules.
+
+Rationale:
+
+- User identity, roles, permissions, tenants, organizations, sessions, OAuth/OIDC, repositories, and policy checks are application-specific.
+- A built-in auth module would push Gest toward a full platform.
+- The framework should provide Nest-ish structure and guard mechanics, not security policy.
+
+Consequences:
+
+- No `modules/auth`.
+- No built-in role or permission module.
+- User apps may create `internal/auth` modules using normal Gest providers.
+- `modules/jwt` remains an optional low-level utility because it does not require a user model.
+- Guard decorators should prioritize `@Use(...)`; `@Auth`, `@Roles`, and `@Permissions` are not built-in framework policy.
+
+## ADR-0012: Typed Handler Wrappers Are Precomputed
+
+Status: Accepted
+
+Typed handler shape must be resolved when route metadata is generated or when `gest.JSON(...)` is called, not on every request.
+
+Rationale:
+
+- Per-request signature reflection is avoidable overhead.
+- Generated metadata already knows handler shape.
+- The runtime should execute a concrete `HandlerFunc` path for each route.
+
+Consequences:
+
+- `gest.JSON(...)` may inspect handler shape once while constructing a wrapper.
+- The returned `HandlerFunc` must not repeat signature inspection per request.
+- Generated code should emit the correct wrapper call directly.
+- Future specialized helpers are allowed if they improve clarity or performance without complicating user code.
 
 ## ADR-0006: Tests And Lint Are Required
 

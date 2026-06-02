@@ -176,7 +176,7 @@ Phase 7 official module scope is:
 - `modules/health`
 - `modules/jwt`
 
-`modules/auth` is deferred until guard/runtime auth semantics exist.
+Gest does not provide `modules/auth`; auth, roles, and permissions are user-owned modules.
 
 Official modules must:
 
@@ -201,7 +201,11 @@ Validation should keep core validation behind the `gest.Validator` interface. If
 
 Health should expose simple dependency-free health routes by default.
 
-JWT must not assume a user database, repository, ORM, or user model. Deferred auth work must follow the same rule.
+JWT must not assume a user database, repository, ORM, or user model.
+
+Gest must not ship built-in auth, role, or permission modules. Auth policy is user-owned application code. Gest may provide guard mechanics, route metadata, bearer-token helpers, and optional JWT utilities, but it must not own user identity, roles, permissions, repositories, or policy semantics.
+
+Typed handler adaptation must happen at route-definition time. Generated metadata and public wrapper helpers such as `gest.JSON(...)` may inspect the handler shape while creating a `HandlerFunc`, but the resulting handler must not perform signature reflection on every request.
 
 ## Error Contract
 

@@ -586,10 +586,6 @@ Gest decorators are Go comments parsed at generation time.
 // @Query(ListUsersQuery)
 // @Param("id", "string", "User ID")
 
-// @Auth
-// @Public
-// @Roles("admin", "owner")
-// @Permissions("project:read")
 // @Use(auth.JWTGuard)
 // @Throttle("login")
 // @Cache("user:{id}", ttl="5m")
@@ -733,11 +729,21 @@ type FindUserResponse struct {
 
 ## Handler wrapper
 
-`gest.JSON(...)` adapts supported typed handlers into `HandlerFunc`.
+Typed handler adaptation must be resolved when routes are defined, not by inspecting handler signatures on every request.
+
+`gest.JSON(...)` adapts supported typed handlers into `HandlerFunc` once. It may use reflection or type switches during wrapper construction, but the returned `HandlerFunc` must not repeat signature inspection per request.
 
 For handlers with a request DTO, the wrapper binds params, query values, headers, and JSON body fields into `*Req`, then validates it before calling the controller method.
 
 For handlers that return `(*Res, error)`, a non-nil response is written as JSON with the configured success status. A nil response writes no content with the configured empty status.
+
+Generated controller metadata should choose the appropriate wrapper at generation time:
+
+```go
+Handler: gest.JSON(c.FindUser, gest.Status(200))
+```
+
+The generated file should never emit a generic runtime dispatcher that re-checks the controller method signature on every request.
 
 ## Binding rules
 
@@ -936,7 +942,7 @@ func NewChatController(hub *ChatHub) *ChatController {
 }
 
 // @WebSocket("/rooms/:id")
-// @Auth
+// @Use(auth.JWTGuard)
 func (c *ChatController) JoinRoom(
 	ctx *gest.Context,
 	socket *gest.Socket,
@@ -980,15 +986,22 @@ websocket.Coder()
 
 ---
 
-# 14. Auth, Guards, and Roles
+# 14. Guards and User-Owned Auth
 
-Built-in shortcuts:
+Auth, roles, and permissions are application policy. Gest must not ship a built-in auth, role, or permission module.
+
+Gest should provide mechanics that make user-owned auth modules pleasant:
+
+- DI-resolved guards
+- route metadata
+- context storage
+- bearer-token helpers
+- OpenAPI security metadata hooks later
+
+Built-in auth policy shortcuts are not part of v0. User applications can define their own decorators or guard conventions later, but Gest should start with explicit guards:
 
 ```go
-// @Auth
-// @Public
-// @Roles("admin")
-// @Permissions("project:read")
+// @Use(auth.JWTGuard)
 ```
 
 Custom guards:
@@ -1016,7 +1029,7 @@ Guards: []gest.GuardFactory{
 }
 ```
 
-Auth module example:
+User-owned auth module example:
 
 ```go
 package auth
@@ -1056,6 +1069,8 @@ func Module(options Options) gest.Module {
 	})
 }
 ```
+
+This module lives in the user's application, such as `myapp/internal/auth`. It is not a Gest official module. It can define its own roles, permissions, users, repositories, policies, and token claims.
 
 Guard example:
 
@@ -1374,7 +1389,7 @@ health
 jwt
 ```
 
-Auth is deferred until guard/runtime auth semantics exist. Cache, throttle, events, queue, scheduler, metrics, tracing, mailer, files, and WebSocket modules are deferred.
+Auth, roles, and permissions are user-owned modules. Cache, throttle, events, queue, scheduler, metrics, tracing, mailer, files, and WebSocket modules are deferred.
 
 ## Config
 
@@ -1431,10 +1446,6 @@ jwt.Module(jwt.Options{
 ```
 
 JWT must not assume a user database or user model.
-
-## Auth
-
-Auth is deferred until guard/runtime auth semantics exist. When implemented, it should provide conservative helpers and guard conventions only, and must not assume an ORM, repository, user table, or user model.
 
 ## Deferred Ecosystem Modules
 
@@ -2249,8 +2260,7 @@ Write controller:
 
 ```go
 // @Controller("/projects/:projectId/teams")
-// @Auth
-// @Roles("admin")
+// @Use(auth.JWTGuard)
 type TeamController struct {
 	service *TeamService
 }

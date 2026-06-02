@@ -134,7 +134,7 @@ Goal: generate `GestController()` methods from simple comments.
 
 Deferred:
 
-- `@Auth`, `@Roles`, `@Permissions`, `@Use`, `@Cache`, `@Throttle`, `@Stream`, `@WebSocket`, import alias resolution, processors, cron jobs.
+- `@Use`, `@Cache`, `@Throttle`, `@Stream`, `@WebSocket`, import alias resolution, processors, cron jobs. Built-in `@Auth`, `@Roles`, and `@Permissions` are not planned; auth policy is user-owned.
 
 Exit criteria:
 
@@ -251,6 +251,7 @@ Design rules:
 - No global module magic in v0. Use explicit module imports and constructor injection.
 - No built-in database module or ORM abstraction.
 - No cache/throttle/events in this phase.
+- No built-in auth, role, or permission module. Auth policy is user-owned.
 - App-specific config should be represented by user-owned structs loaded and provided through DI.
 - Validation module should provide a concrete validator, but app installation may stay explicit with `gest.WithValidator(...)` if automatic installation would require special runtime hooks.
 
@@ -261,7 +262,7 @@ Design rules:
 | P7.3 | Done | Validation module | Add `modules/validation` with a concrete `gest.Validator` implementation and explicit app installation if needed. |
 | P7.4 | Done | Health module | Add `modules/health` with `/health`, `/health/live`, and `/health/ready` returning `{"status":"ok"}`. |
 | P7.5 | Done | JWT module | Add `modules/jwt` for signing/verifying tokens with explicit `Secret` or `SecretFromEnv`; no database or user model assumptions. |
-| P7.6 | Blocked | Auth module | Deferred until guard/runtime auth semantics exist; do not add `modules/auth` before guard behavior is designed and implemented. |
+| P7.6 | Done | No built-in auth module decision | Document that auth, roles, and permissions are user-owned modules; Gest provides guard mechanics and JWT utility only. |
 | P7.7 | Done | Optional modules checkpoint | Verify config/logger/validation/health/jwt are optional, core runtime imports none of them, and an example app can use them together. |
 
 Explicitly out of scope:
@@ -272,6 +273,7 @@ Explicitly out of scope:
 - Cache/throttle/events modules.
 - Queue/scheduler modules.
 - Global module behavior.
+- Built-in auth, role, or permission modules.
 
 Exit criteria:
 
@@ -289,12 +291,14 @@ Goal: add advanced features only after real user feedback.
 | ID | Status | Task | Description |
 | --- | --- | --- | --- |
 | P8.1 | Planned | Lazy modules | Register routes at boot and initialize providers on first use. Requires strong concurrency and lifecycle tests. |
-| P8.2 | Planned | Guards and route metadata | Add `@Auth`, `@Public`, `@Roles`, `@Permissions`, and DI-resolved guard factories. |
+| P8.2 | Planned | Guard runtime and route metadata | Add DI-resolved guard factories and hand-written route guard metadata; auth, roles, and permissions remain user-owned policy. |
 | P8.3 | Planned | Import alias resolution | Add explicit `@GestImport` first, then existing Go imports. Defer package scan aliases until there is clear demand. |
-| P8.4 | Planned | Streaming | Add stream and SSE helpers while preserving raw `http.ResponseWriter` escape hatches. |
-| P8.5 | Planned | WebSockets | Add WebSocket routes and socket abstractions as an optional module. |
-| P8.6 | Planned | Queue and scheduler modules | Add job processors and cron/every decorators as optional ecosystem modules. |
-| P8.7 | Planned | Metrics and tracing modules | Add observability modules after core middleware and context conventions are stable. |
+| P8.4 | Planned | Guard decorator MVP | Add `@Use(...)` only, resolving from existing Go imports or explicit `@GestImport`; do not add built-in `@Auth`, `@Roles`, or `@Permissions`. |
+| P8.5 | Planned | Typed handler performance checkpoint | Verify `gest.JSON(...)` and generated handlers resolve signature shape once at route-definition time, with no per-request signature reflection. |
+| P8.6 | Planned | Streaming | Add stream and SSE helpers while preserving raw `http.ResponseWriter` escape hatches. |
+| P8.7 | Planned | WebSockets | Add WebSocket routes and socket abstractions as an optional module. |
+| P8.8 | Planned | Queue and scheduler modules | Add job processors and cron/every decorators as optional ecosystem modules. |
+| P8.9 | Planned | Metrics and tracing modules | Add observability modules after core middleware and context conventions are stable. |
 
 Exit criteria:
 
