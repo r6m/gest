@@ -262,7 +262,7 @@ Design rules:
 | P7.4 | Done | Health module | Add `modules/health` with `/health`, `/health/live`, and `/health/ready` returning `{"status":"ok"}`. |
 | P7.5 | Done | JWT module | Add `modules/jwt` for signing/verifying tokens with explicit `Secret` or `SecretFromEnv`; no database or user model assumptions. |
 | P7.6 | Planned | Auth module | Add a conservative `modules/auth` layer for auth helpers/guard conventions without user database assumptions. |
-| P7.7 | Planned | Optional modules checkpoint | Verify config/logger/validation/health/jwt/auth are optional, core runtime imports none of them, and an example app can use them together. |
+| P7.7 | Done | Optional modules checkpoint | Verify config/logger/validation/health/jwt/auth are optional, core runtime imports none of them, and an example app can use them together. |
 
 Explicitly out of scope:
 
