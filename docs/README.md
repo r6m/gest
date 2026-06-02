@@ -582,19 +582,7 @@ Gest decorators are Go comments parsed at generation time.
 // @Summary("Find user")
 // @Description("Returns a user by ID")
 
-// @Body(CreateUserRequest)
-// @Query(ListUsersQuery)
-// @Param("id", "string", "User ID")
-
 // @Use(auth.JWTGuard)
-// @Throttle("login")
-// @Cache("user:{id}", ttl="5m")
-
-// @OnEvent("user.created")
-// @Processor("email.welcome")
-// @Cron("0 */5 * * * *")
-// @Gateway("/ws/chat")
-// @Subscribe("message.send")
 ```
 
 Keep decorator syntax line-based and simple. Avoid complex object syntax inside comments.
@@ -605,6 +593,8 @@ Good:
 // @Controller("/users")
 // @Tag("Users")
 ```
+
+Deferred decorators such as `@Cache`, `@Throttle`, `@Processor`, `@Cron`, `@Gateway`, and `@Subscribe` are not MVP route decorators. `@WebSocket` is not a supported route decorator; WebSocket gateways are deferred to Phase 11 and will use `@Gateway` on gateway types and `@Subscribe` on gateway methods.
 
 Avoid:
 

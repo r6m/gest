@@ -303,7 +303,7 @@ Goal: add advanced features only after real user feedback.
 | P8.6 | Done | Smarter dev diagnostics | Add framework-aware hints to `gest generate` and `gest dev` for skipped routes, detached decorators, generated controllers not provided in a module, and likely missing module imports. Keep raw Go output visible. |
 | P8.7 | Done | Route generation debug output | Add concise `gest generate --explain` or equivalent output that lists parsed controllers/routes and why route-like methods were rejected. |
 | P8.8 | Done | Streaming and SSE helpers | Add core HTTP `Context.Stream(...)` and `Context.SSE(...)` helpers while preserving raw `http.ResponseWriter` escape hatches. SSE uses normal `@Get` routes; do not add `@SSE` or `@Stream` decorators in the MVP. |
-| P8.9 | Planned | WebSocket boundary checkpoint | Keep WebSocket out of core runtime. Document and test that core runtime imports no `modules/websocket`; defer gateway implementation to the WebSocket module phase. |
+| P8.9 | Done | WebSocket boundary checkpoint | Keep WebSocket out of core runtime. Document and test that core runtime imports no `modules/websocket`; defer gateway implementation to the WebSocket module phase. |
 | P8.10 | Planned | Ecosystem module checkpoint | Verify advanced runtime boundaries before ecosystem modules: core runtime imports no optional modules, generator output stays explicit, and global module semantics are stable enough for events/cache. |
 | P8.11 | Planned | Metrics and tracing modules | Add observability modules after core middleware and context conventions are stable. |
 

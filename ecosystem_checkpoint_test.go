@@ -93,6 +93,7 @@ func TestCoreRuntimeDoesNotImportEcosystemModules(t *testing.T) {
 		"module.go",
 		"provider.go",
 		"router.go",
+		"stream.go",
 	}
 	for _, file := range coreFiles {
 		content := readFile(t, filepath.Join(root, file))
@@ -101,11 +102,19 @@ func TestCoreRuntimeDoesNotImportEcosystemModules(t *testing.T) {
 			"github.com/r6m/gest/modules/scheduler",
 			"github.com/r6m/gest/modules/cache",
 			"github.com/r6m/gest/modules/queue",
+			"github.com/r6m/gest/modules/websocket",
 		} {
 			if strings.Contains(content, importPath) {
 				t.Fatalf("core runtime file %s imports %s", file, importPath)
 			}
 		}
+	}
+
+	websocketModule := filepath.Join(root, "modules", "websocket")
+	if _, err := os.Stat(websocketModule); err == nil {
+		t.Fatalf("modules/websocket exists before the WebSocket module phase")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stat %s: %v", websocketModule, err)
 	}
 }
 

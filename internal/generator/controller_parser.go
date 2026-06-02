@@ -1318,11 +1318,27 @@ func unknownDecoratorDiagnostic(decorator decorator) Diagnostic {
 }
 
 func unknownRouteDecoratorDiagnostic(decorator decorator) Diagnostic {
+	if decorator.Name == "WebSocket" {
+		return websocketRouteDecoratorDiagnostic(decorator)
+	}
 	return Diagnostic{
 		Severity: SeverityError,
 		Code:     DiagnosticUnknownDecorator,
 		Message:  "unknown or deferred route decorator @" + decorator.Name,
 		Hint:     "supported MVP route decorators are @Hide, @Use, @Get, @Post, @Put, @Patch, @Delete, @Status, @Summary, and @Description",
+		File:     decorator.File,
+		Line:     decorator.Line,
+		Column:   decorator.Column,
+		Target:   decorator.Name,
+	}
+}
+
+func websocketRouteDecoratorDiagnostic(decorator decorator) Diagnostic {
+	return Diagnostic{
+		Severity: SeverityError,
+		Code:     DiagnosticUnknownDecorator,
+		Message:  "@WebSocket is not a core HTTP route decorator",
+		Hint:     "WebSocket gateways are deferred to Phase 11 and will use @Gateway on gateway types and @Subscribe on gateway methods, not @WebSocket routes",
 		File:     decorator.File,
 		Line:     decorator.Line,
 		Column:   decorator.Column,
@@ -1344,6 +1360,12 @@ func unresolvedGuardAliasDiagnostic(decorator decorator, alias string) Diagnosti
 }
 
 func invalidRouteTargetDiagnostic(decorator decorator, target string) Diagnostic {
+	if decorator.Name == "WebSocket" {
+		diagnostic := websocketRouteDecoratorDiagnostic(decorator)
+		diagnostic.Code = DiagnosticInvalidTarget
+		diagnostic.Message = "@WebSocket is not a core HTTP route decorator on " + target
+		return diagnostic
+	}
 	if target == "" {
 		target = "<declaration>"
 	}

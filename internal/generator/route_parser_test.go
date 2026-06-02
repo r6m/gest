@@ -354,6 +354,72 @@ func (c *UserController) Find(ctx *gest.Context) error { return nil }
 	}
 }
 
+func TestParseControllerRoutesWebSocketDecoratorExplainsGatewayDeferral(t *testing.T) {
+	root := routeErrorFixture(t, `// @Get("/")
+// @WebSocket("/ws")
+func (c *UserController) Events(ctx *gest.Context) error { return nil }
+`)
+
+	controllers, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
+	if err != nil {
+		t.Fatalf("ParseControllerRoutes returned error: %v", err)
+	}
+	if len(controllers) != 1 || len(controllers[0].Routes) != 1 {
+		t.Fatalf("controllers = %#v, want parsed HTTP route despite deferred WebSocket diagnostic", controllers)
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics length = %d, want 1: %#v", len(diagnostics), diagnostics)
+	}
+	diagnostic := diagnosticSummary(root, diagnostics[0])
+	if diagnostic.Code != DiagnosticUnknownDecorator {
+		t.Fatalf("Code = %q, want %q", diagnostic.Code, DiagnosticUnknownDecorator)
+	}
+	if diagnostic.Target != "WebSocket" {
+		t.Fatalf("Target = %q, want WebSocket", diagnostic.Target)
+	}
+	if !strings.Contains(diagnostics[0].Message, "not a core HTTP route decorator") {
+		t.Fatalf("Message = %q, want core HTTP route guidance", diagnostics[0].Message)
+	}
+	if !strings.Contains(diagnostics[0].Hint, "@Gateway") || !strings.Contains(diagnostics[0].Hint, "@Subscribe") {
+		t.Fatalf("Hint = %q, want @Gateway/@Subscribe guidance", diagnostics[0].Hint)
+	}
+}
+
+func TestParseControllerRoutesDetachedWebSocketDecoratorExplainsGatewayDeferral(t *testing.T) {
+	root := newFixture(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+// @WebSocket("/ws")
+func Events(ctx *gest.Context) error { return nil }
+`,
+	})
+
+	controllers, diagnostics, err := ParseControllerRoutes(scanFixturePackages(t, root))
+	if err != nil {
+		t.Fatalf("ParseControllerRoutes returned error: %v", err)
+	}
+	if len(controllers) != 0 {
+		t.Fatalf("controllers = %#v, want none", controllers)
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics length = %d, want 1: %#v", len(diagnostics), diagnostics)
+	}
+	diagnostic := diagnosticSummary(root, diagnostics[0])
+	if diagnostic.Code != DiagnosticInvalidTarget {
+		t.Fatalf("Code = %q, want %q", diagnostic.Code, DiagnosticInvalidTarget)
+	}
+	if diagnostic.Target != "WebSocket" {
+		t.Fatalf("Target = %q, want WebSocket", diagnostic.Target)
+	}
+	if !strings.Contains(diagnostics[0].Message, "not a core HTTP route decorator") {
+		t.Fatalf("Message = %q, want core HTTP route guidance", diagnostics[0].Message)
+	}
+	if !strings.Contains(diagnostics[0].Hint, "@Gateway") || !strings.Contains(diagnostics[0].Hint, "@Subscribe") {
+		t.Fatalf("Hint = %q, want @Gateway/@Subscribe guidance", diagnostics[0].Hint)
+	}
+}
+
 func TestParseControllerRoutesDeterministicOrdering(t *testing.T) {
 	root := newFixture(t, map[string]string{
 		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
