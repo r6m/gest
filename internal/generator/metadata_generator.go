@@ -119,6 +119,37 @@ func GenerateSchedulerMetadataFiles(tasks []ScheduledTask) ([]GeneratedFile, err
 	return files, nil
 }
 
+// GenerateQueueMetadataFiles emits deterministic Gest queue processor metadata files.
+func GenerateQueueMetadataFiles(processors []QueueProcessor) ([]GeneratedFile, error) {
+	processorsByDir := make(map[string][]QueueProcessor)
+	for _, processor := range processors {
+		processorsByDir[processor.Package.Dir] = append(processorsByDir[processor.Package.Dir], processor)
+	}
+
+	dirs := make([]string, 0, len(processorsByDir))
+	for dir := range processorsByDir {
+		dirs = append(dirs, dir)
+	}
+	slices.Sort(dirs)
+
+	files := make([]GeneratedFile, 0, len(dirs))
+	for _, dir := range dirs {
+		pkgProcessors := processorsByDir[dir]
+		sortQueueProcessors(pkgProcessors)
+		content, err := generatePackageQueueMetadata(pkgProcessors)
+		if err != nil {
+			return nil, err
+		}
+		pkg := pkgProcessors[0].Package
+		files = append(files, GeneratedFile{
+			Path:    filepath.Join(pkg.Dir, pkg.Name+"_queue.gen.go"),
+			Package: pkg,
+			Content: content,
+		})
+	}
+	return files, nil
+}
+
 // WriteGeneratedFiles formats and writes generated files, skipping unchanged files.
 func WriteGeneratedFiles(files []GeneratedFile) ([]WriteResult, []Diagnostic) {
 	results := make([]WriteResult, 0, len(files))
@@ -306,6 +337,54 @@ func writeSchedulerTaskMetadata(buffer *bytes.Buffer, task ScheduledTask) {
 		buffer.WriteString(",\n")
 	}
 	buffer.WriteString("\t\t\t\tRun: scheduler.Handle(t.Run),\n")
+	buffer.WriteString("\t\t\t},\n")
+	buffer.WriteString("\t\t},\n")
+	buffer.WriteString("\t}\n")
+	buffer.WriteString("}\n")
+}
+
+func generatePackageQueueMetadata(processors []QueueProcessor) ([]byte, error) {
+	if len(processors) == 0 {
+		return nil, nil
+	}
+
+	var buffer bytes.Buffer
+	pkg := processors[0].Package
+	buffer.WriteString(generatedHeader)
+	buffer.WriteString("\npackage ")
+	buffer.WriteString(pkg.Name)
+	buffer.WriteString("\n\n")
+	buffer.WriteString("import \"github.com/r6m/gest/modules/queue\"\n\n")
+	for index, processor := range processors {
+		if index > 0 {
+			buffer.WriteString("\n")
+		}
+		writeQueueProcessorMetadata(&buffer, processor)
+	}
+
+	formatted, err := format.Source(buffer.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("format generated queue metadata for package %q: %w", pkg.ImportPath, err)
+	}
+	return formatted, nil
+}
+
+func writeQueueProcessorMetadata(buffer *bytes.Buffer, processor QueueProcessor) {
+	buffer.WriteString("func (p *")
+	buffer.WriteString(processor.TypeName)
+	buffer.WriteString(") GestQueueProcessor() queue.ProcessorDefinition {\n")
+	buffer.WriteString("\treturn queue.ProcessorDefinition{\n")
+	buffer.WriteString("\t\tName: ")
+	buffer.WriteString(strconv.Quote(processor.TypeName))
+	buffer.WriteString(",\n")
+	buffer.WriteString("\t\tProcessors: []queue.ProcessorBinding{\n")
+	buffer.WriteString("\t\t\t{\n")
+	buffer.WriteString("\t\t\t\tQueue: ")
+	buffer.WriteString(strconv.Quote(processor.QueueName))
+	buffer.WriteString(",\n")
+	buffer.WriteString("\t\t\t\tHandle: queue.Handle[")
+	buffer.WriteString(processor.PayloadType)
+	buffer.WriteString("](p.Process),\n")
 	buffer.WriteString("\t\t\t},\n")
 	buffer.WriteString("\t\t},\n")
 	buffer.WriteString("\t}\n")

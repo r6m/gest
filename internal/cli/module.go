@@ -56,6 +56,10 @@ func (c *CLI) runGenerateTask(ctx context.Context, args []string) error {
 	return c.runGenerateComponent(ctx, args, componentTask)
 }
 
+func (c *CLI) runGenerateProcessor(ctx context.Context, args []string) error {
+	return c.runGenerateComponent(ctx, args, componentProcessor)
+}
+
 func (c *CLI) runGenerateResource(ctx context.Context, args []string) error {
 	select {
 	case <-ctx.Done():
@@ -118,6 +122,7 @@ const (
 	componentService    componentKind = "service"
 	componentListener   componentKind = "listener"
 	componentTask       componentKind = "task"
+	componentProcessor  componentKind = "processor"
 )
 
 type componentOptions struct {
@@ -558,6 +563,39 @@ func (t *%sTask) Run(ctx context.Context) error {
 	return nil
 }
 `, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix)
+	case componentProcessor:
+		source = fmt.Sprintf(`package %s
+
+import (
+	"context"
+
+	"github.com/r6m/gest/modules/queue"
+)
+
+type %sJob struct {
+	ID string
+}
+
+// @Processor("%s")
+type %sProcessor struct {
+	queue *queue.Queue
+}
+
+func New%sProcessor(queue *queue.Queue) *%sProcessor {
+	return &%sProcessor{queue: queue}
+}
+
+func (p *%sProcessor) OnModuleInit(ctx context.Context) error {
+	_ = ctx
+	return queue.RegisterProcessor(p.queue, p)
+}
+
+func (p *%sProcessor) Process(ctx context.Context, job %sJob) error {
+	_ = ctx
+	_ = job
+	return nil
+}
+`, componentPath.packageName, componentPath.typePrefix, queueName(componentPath), componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix)
 	default:
 		return nil, fmt.Errorf("unknown component kind %q", kind)
 	}
@@ -632,6 +670,27 @@ func TestNew%sTask(t *testing.T) {
 		t.Fatal("task is nil")
 	}
 	if err := task.OnModuleInit(context.Background()); err != nil {
+		t.Fatalf("OnModuleInit returned error: %%v", err)
+	}
+}
+`, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix)
+	case componentProcessor:
+		source = fmt.Sprintf(`package %s
+
+import (
+	"context"
+	"testing"
+
+	"github.com/r6m/gest/modules/queue"
+)
+
+func TestNew%sProcessor(t *testing.T) {
+	q := queue.NewQueue(queue.Options{})
+	processor := New%sProcessor(q)
+	if processor == nil {
+		t.Fatal("processor is nil")
+	}
+	if err := processor.OnModuleInit(context.Background()); err != nil {
 		t.Fatalf("OnModuleInit returned error: %%v", err)
 	}
 }
@@ -1138,12 +1197,18 @@ func providerCall(componentPath generatorPath, kind componentKind) string {
 		return "gest.Provide(New" + componentPath.typePrefix + "Listener)"
 	case componentTask:
 		return "gest.Provide(New" + componentPath.typePrefix + "Task)"
+	case componentProcessor:
+		return "gest.Provide(New" + componentPath.typePrefix + "Processor)"
 	default:
 		return ""
 	}
 }
 
 func eventNamePrefix(componentPath generatorPath) string {
+	return strings.ReplaceAll(componentPath.moduleName, "_", ".")
+}
+
+func queueName(componentPath generatorPath) string {
 	return strings.ReplaceAll(componentPath.moduleName, "_", ".")
 }
 

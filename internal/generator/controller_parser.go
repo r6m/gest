@@ -75,6 +75,17 @@ type ScheduledTask struct {
 	Column   int
 }
 
+// QueueProcessor describes queue processor metadata parsed from @Processor.
+type QueueProcessor struct {
+	Package     Package
+	TypeName    string
+	QueueName   string
+	PayloadType string
+	File        string
+	Line        int
+	Column      int
+}
+
 // ParseControllers parses controller-level MVP decorators from scanned packages.
 func ParseControllers(packages []Package) ([]Controller, []Diagnostic, error) {
 	controllers := make([]Controller, 0)
@@ -388,6 +399,121 @@ func invalidScheduledTaskSignatureDiagnostic(fileSet *token.FileSet, function *a
 	}
 }
 
+// ParseQueueProcessors parses queue processor decorators from scanned packages.
+func ParseQueueProcessors(packages []Package) ([]QueueProcessor, []Diagnostic, error) {
+	processors := make([]QueueProcessor, 0)
+	diagnostics := make([]Diagnostic, 0)
+	for _, pkg := range packages {
+		for _, file := range pkg.Files {
+			fileProcessors, fileDiagnostics, err := parseQueueProcessorFile(pkg, file)
+			if err != nil {
+				return nil, nil, err
+			}
+			processors = append(processors, fileProcessors...)
+			diagnostics = append(diagnostics, fileDiagnostics...)
+		}
+	}
+	sortQueueProcessors(processors)
+	sortDiagnostics(diagnostics)
+	return processors, diagnostics, nil
+}
+
+func parseQueueProcessorFile(pkg Package, file string) ([]QueueProcessor, []Diagnostic, error) {
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, file, nil, parser.ParseComments)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse Go file %q: %w", file, err)
+	}
+
+	typeProcessors := make(map[string]decorator)
+	diagnostics := make([]Diagnostic, 0)
+	for _, declaration := range parsed.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Doc == nil {
+			continue
+		}
+		decorators := decoratorsFromComments(fileSet, general.Doc)
+		if len(decorators) == 0 {
+			continue
+		}
+		typeName, isSingleType := singleTypeName(general)
+		for _, decorator := range decorators {
+			if decorator.Name != "Processor" {
+				continue
+			}
+			if !isSingleType {
+				diagnostics = append(diagnostics, invalidTargetDiagnostic(decorator, typeName))
+				continue
+			}
+			if _, ok := parseSingleStringArgument(decorator.Raw); !ok {
+				diagnostics = append(diagnostics, invalidSyntaxDiagnostic(
+					decorator,
+					"@Processor requires a single string queue name argument",
+					`use @Processor("email.send")`,
+				))
+				continue
+			}
+			typeProcessors[typeName] = decorator
+		}
+	}
+
+	processors := make([]QueueProcessor, 0, len(typeProcessors))
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name == nil || function.Name.Name != "Process" {
+			continue
+		}
+		receiver := receiverTypeName(function)
+		decorator, ok := typeProcessors[receiver]
+		if !ok {
+			continue
+		}
+		queueName, _ := parseSingleStringArgument(decorator.Raw)
+		payloadType, ok := validateQueueProcessorSignature(function)
+		if !ok {
+			diagnostics = append(diagnostics, invalidQueueProcessorSignatureDiagnostic(fileSet, function))
+			delete(typeProcessors, receiver)
+			continue
+		}
+		processors = append(processors, QueueProcessor{
+			Package:     pkg,
+			TypeName:    receiver,
+			QueueName:   queueName,
+			PayloadType: payloadType,
+			File:        decorator.File,
+			Line:        decorator.Line,
+			Column:      decorator.Column,
+		})
+		delete(typeProcessors, receiver)
+	}
+	for typeName, decorator := range typeProcessors {
+		diagnostics = append(diagnostics, Diagnostic{
+			Severity: SeverityError,
+			Code:     DiagnosticInvalidHandlerSignature,
+			Message:  "@Processor " + typeName + " must define Process(ctx context.Context, job PayloadType) error",
+			Hint:     "add a Process method with context.Context, one payload parameter, and error return",
+			File:     decorator.File,
+			Line:     decorator.Line,
+			Column:   decorator.Column,
+		})
+	}
+	return processors, diagnostics, nil
+}
+
+func invalidQueueProcessorSignatureDiagnostic(fileSet *token.FileSet, function *ast.FuncDecl) Diagnostic {
+	position := fileSet.Position(function.Pos())
+	return Diagnostic{
+		Severity: SeverityError,
+		Code:     DiagnosticInvalidHandlerSignature,
+		Message:  "invalid queue processor signature " + handlerSignatureString(function),
+		Hint:     "accepted signature is func(ctx context.Context, job PayloadType) error",
+		File:     position.Filename,
+		Line:     position.Line,
+		Column:   position.Column,
+		Target:   function.Name.Name,
+	}
+}
+
 func parseControllerRoutesFile(pkg Package, file string) ([]Controller, []Diagnostic, error) {
 	fileSet := token.NewFileSet()
 	parsed, err := parser.ParseFile(fileSet, file, nil, parser.ParseComments)
@@ -554,6 +680,8 @@ func parseControllersFromAST(pkg Package, file string, fileSet *token.FileSet, p
 			case "OnEvent":
 				continue
 			case "Cron", "Every":
+				continue
+			case "Processor":
 				continue
 			default:
 				diagnostics = append(diagnostics, unknownDecoratorDiagnostic(decorator))
@@ -1011,6 +1139,26 @@ func validateEventHandlerSignature(function *ast.FuncDecl) (string, bool) {
 	return eventType, true
 }
 
+func validateQueueProcessorSignature(function *ast.FuncDecl) (string, bool) {
+	params := function.Type.Params
+	if params == nil || fieldCount(params.List) != 2 {
+		return "", false
+	}
+	flattenedParams := flattenFields(params.List)
+	if len(flattenedParams) != 2 || !isContextType(flattenedParams[0]) {
+		return "", false
+	}
+	payloadType := exprString(flattenedParams[1])
+	if payloadType == "" {
+		return "", false
+	}
+	results := flattenResultFields(function.Type.Results)
+	if len(results) != 1 || !isErrorType(results[0]) {
+		return "", false
+	}
+	return payloadType, true
+}
+
 func validateScheduledTaskSignature(function *ast.FuncDecl) bool {
 	params := function.Type.Params
 	if params == nil || fieldCount(params.List) != 1 {
@@ -1283,6 +1431,30 @@ func sortListeners(listeners []Listener) {
 
 func sortScheduledTasks(tasks []ScheduledTask) {
 	slices.SortFunc(tasks, func(a ScheduledTask, b ScheduledTask) int {
+		if filepath.ToSlash(a.File) < filepath.ToSlash(b.File) {
+			return -1
+		}
+		if filepath.ToSlash(a.File) > filepath.ToSlash(b.File) {
+			return 1
+		}
+		if a.Line < b.Line {
+			return -1
+		}
+		if a.Line > b.Line {
+			return 1
+		}
+		if a.TypeName < b.TypeName {
+			return -1
+		}
+		if a.TypeName > b.TypeName {
+			return 1
+		}
+		return 0
+	})
+}
+
+func sortQueueProcessors(processors []QueueProcessor) {
+	slices.SortFunc(processors, func(a QueueProcessor, b QueueProcessor) int {
 		if filepath.ToSlash(a.File) < filepath.ToSlash(b.File) {
 			return -1
 		}

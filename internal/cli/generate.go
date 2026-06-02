@@ -112,6 +112,11 @@ func runGenerate(root string, options generateRunOptions) (generateResult, error
 		return generateResult{}, err
 	}
 	diagnostics = append(diagnostics, taskDiagnostics...)
+	processors, processorDiagnostics, err := generator.ParseQueueProcessors(packages)
+	if err != nil {
+		return generateResult{}, err
+	}
+	diagnostics = append(diagnostics, processorDiagnostics...)
 
 	files, err := generator.GenerateMetadataFiles(controllers)
 	if err != nil {
@@ -127,6 +132,11 @@ func runGenerate(root string, options generateRunOptions) (generateResult, error
 		return generateResult{}, err
 	}
 	files = append(files, schedulerFiles...)
+	queueFiles, err := generator.GenerateQueueMetadataFiles(processors)
+	if err != nil {
+		return generateResult{}, err
+	}
+	files = append(files, queueFiles...)
 
 	result := generateResult{
 		scannedPackages: len(packages),
