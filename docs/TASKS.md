@@ -387,7 +387,7 @@ modules/
 | P10.3 | Done | Add cache module | Add `modules/cache` with a small cache service interface, memory adapter, optional global module mode, typed JSON helpers if useful, and no decorators initially. Defer Redis unless the memory contract is stable. |
 | P10.4 | Done | Add queue module | Add `modules/queue` with in-memory dev/test adapter, `@Processor("queue.name")`, generated processor metadata, and `gest g processor <path>`. Start with `Process(ctx context.Context, job Payload) error`; defer `queue.Job[T]`, retries, backoff, dead-lettering, and Redis. |
 | P10.5 | Done | Add ecosystem generator checkpoint | Verify `gest generate`, generated metadata, nested module updates, generated tests, lifecycle shutdown, and no core runtime imports for events/scheduler/cache/queue. |
-| P10.6 | Planned | Add ecosystem examples | Add focused examples showing events, scheduler, cache, and queue usage without database/auth assumptions. Include tests and docs. |
+| P10.6 | Done | Add ecosystem examples | Add focused examples showing events, scheduler, cache, and queue usage without database/auth assumptions. Include tests and docs. |
 
 Exit criteria:
 

@@ -164,6 +164,15 @@ The hello example registers:
 
 Swagger is optional and lives outside the core runtime.
 
+## Ecosystem Modules
+
+Focused examples for optional modules live under `examples/ecosystem`:
+
+- `events`: synchronous in-process events with explicit global mode.
+- `scheduler`: lifecycle-managed scheduled tasks.
+- `cache`: in-memory cache service with JSON helpers and explicit global mode.
+- `queue`: in-memory dev/test queue processors.
+
 ## Test With Gesttest
 
 ```go
