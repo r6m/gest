@@ -89,6 +89,44 @@ func TestDevBuildFailureKeepsOldProcessAlive(t *testing.T) {
 	}
 }
 
+func TestDevGenerateShowsFrameworkHints(t *testing.T) {
+	root := fixtureWithFiles(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+import "github.com/r6m/gest"
+
+// @Controller("/users")
+type UsersController struct{}
+
+// @Get("/")
+func (c *UsersController) List(ctx *gest.Context) error {
+	return nil
+}
+
+func (c *UsersController) GetAll(ctx *gest.Context, req *GetAllRequest) error {
+	return nil
+}
+
+type GetAllRequest struct{}
+`,
+	})
+	var output bytes.Buffer
+	runner := &execDevRunner{workDir: root, stdout: &output}
+
+	err := runner.Generate(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	assertOutputContains(t, output.String(),
+		"generated: 1 updated: 0 skipped: 0",
+		"explain: parsed controllers/routes",
+		"UsersController.GetAll: method has a valid Gest handler signature but no route decorator",
+		"hint: add @Get, @Post, @Put, @Patch, or @Delete above GetAll",
+	)
+}
+
 func TestDevGeneratedFileChangeIsIgnored(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "internal/users/users.go", "package users\n")

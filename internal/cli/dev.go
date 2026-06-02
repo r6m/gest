@@ -265,7 +265,7 @@ type execDevRunner struct {
 }
 
 func (r *execDevRunner) Generate(ctx context.Context, root string) error {
-	result, err := runGenerate(root, false)
+	result, err := runGenerate(root, generateRunOptions{explain: true})
 	if err != nil {
 		return err
 	}

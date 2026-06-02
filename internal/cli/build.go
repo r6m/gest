@@ -31,7 +31,7 @@ func (c *CLI) runBuild(ctx context.Context, args []string) error {
 		if !filepath.IsAbs(root) {
 			root = filepath.Join(c.WorkDir, root)
 		}
-		result, err := runGenerate(filepath.Clean(root), false)
+		result, err := runGenerate(filepath.Clean(root), generateRunOptions{})
 		if err != nil {
 			return err
 		}

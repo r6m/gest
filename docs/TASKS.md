@@ -300,8 +300,8 @@ Goal: add advanced features only after real user feedback.
 | P8.3 | Planned | Import alias resolution | Add explicit `@GestImport` first, then existing Go imports. Defer package scan aliases until there is clear demand. |
 | P8.4 | Done | Unified `@Use(...)` decorator | Add `@Use(...)` for middleware and guards, resolving from existing Go imports; classify providers by interface and do not add built-in `@Auth`, `@Roles`, or `@Permissions`. |
 | P8.5 | Planned | Typed handler performance checkpoint | Verify `gest.Handle(...)` and generated explicit adapters resolve signature shape once at route-definition time, with no per-request signature reflection. |
-| P8.6 | Planned | Smarter dev diagnostics | Add framework-aware hints to `gest generate` and `gest dev` for skipped routes, detached decorators, generated controllers not provided in a module, and likely missing module imports. Keep raw Go output visible. |
-| P8.7 | Planned | Route generation debug output | Add concise `gest generate --explain` or equivalent output that lists parsed controllers/routes and why route-like methods were rejected. |
+| P8.6 | Done | Smarter dev diagnostics | Add framework-aware hints to `gest generate` and `gest dev` for skipped routes, detached decorators, generated controllers not provided in a module, and likely missing module imports. Keep raw Go output visible. |
+| P8.7 | Done | Route generation debug output | Add concise `gest generate --explain` or equivalent output that lists parsed controllers/routes and why route-like methods were rejected. |
 | P8.8 | Planned | Streaming | Add stream and SSE helpers while preserving raw `http.ResponseWriter` escape hatches. |
 | P8.9 | Planned | WebSockets | Add WebSocket routes and socket abstractions as an optional module. |
 | P8.10 | Planned | Queue and scheduler modules | Add job processors and cron/every decorators as optional ecosystem modules. |

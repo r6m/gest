@@ -7,13 +7,18 @@ import (
 
 const (
 	SeverityError = "error"
+	SeverityInfo  = "info"
 
-	DiagnosticUnknownDecorator        = "GEN_UNKNOWN_DECORATOR"
-	DiagnosticInvalidDecoratorSyntax  = "GEN_INVALID_DECORATOR_SYNTAX"
-	DiagnosticInvalidTarget           = "GEN_INVALID_TARGET"
-	DiagnosticInvalidHandlerSignature = "HANDLER_INVALID_SIGNATURE"
-	DiagnosticFormatFailure           = "GEN_FORMAT_FAILURE"
-	DiagnosticWriteFailure            = "GEN_WRITE_FAILURE"
+	DiagnosticUnknownDecorator          = "GEN_UNKNOWN_DECORATOR"
+	DiagnosticInvalidDecoratorSyntax    = "GEN_INVALID_DECORATOR_SYNTAX"
+	DiagnosticInvalidTarget             = "GEN_INVALID_TARGET"
+	DiagnosticInvalidHandlerSignature   = "HANDLER_INVALID_SIGNATURE"
+	DiagnosticSkippedRoute              = "GEN_SKIPPED_ROUTE"
+	DiagnosticDetachedRoute             = "GEN_DETACHED_ROUTE"
+	DiagnosticControllerNotProvided     = "GEN_CONTROLLER_NOT_PROVIDED"
+	DiagnosticLikelyMissingModuleImport = "GEN_LIKELY_MISSING_MODULE_IMPORT"
+	DiagnosticFormatFailure             = "GEN_FORMAT_FAILURE"
+	DiagnosticWriteFailure              = "GEN_WRITE_FAILURE"
 )
 
 // Diagnostic describes a generator problem with source location when available.

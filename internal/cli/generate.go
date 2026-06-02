@@ -40,7 +40,7 @@ func (c *CLI) runGenerate(ctx context.Context, args []string) error {
 	}
 	root = filepath.Clean(root)
 
-	result, err := runGenerate(root, options.dryRun)
+	result, err := runGenerate(root, generateRunOptions{dryRun: options.dryRun, explain: options.explain})
 	if err != nil {
 		return err
 	}
@@ -55,8 +55,9 @@ func (c *CLI) runGenerate(ctx context.Context, args []string) error {
 }
 
 type generateOptions struct {
-	root   string
-	dryRun bool
+	root    string
+	dryRun  bool
+	explain bool
 }
 
 func parseGenerateOptions(args []string) (generateOptions, error) {
@@ -65,6 +66,7 @@ func parseGenerateOptions(args []string) (generateOptions, error) {
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&options.root, "root", "", "generation root")
 	flags.BoolVar(&options.dryRun, "dry-run", false, "print changes without writing files")
+	flags.BoolVar(&options.explain, "explain", false, "print parsed routes and skipped route-like methods")
 	if err := flags.Parse(args); err != nil {
 		return generateOptions{}, fmt.Errorf("parse generate flags: %w", err)
 	}
@@ -80,10 +82,17 @@ type generateResult struct {
 	updated         int
 	skipped         int
 	dryRun          bool
+	explain         bool
 	diagnostics     []generator.Diagnostic
+	explanation     generator.GenerationExplanation
 }
 
-func runGenerate(root string, dryRun bool) (generateResult, error) {
+type generateRunOptions struct {
+	dryRun  bool
+	explain bool
+}
+
+func runGenerate(root string, options generateRunOptions) (generateResult, error) {
 	packages, err := generator.ScanPackages(root, generator.ScanOptions{})
 	if err != nil {
 		return generateResult{}, err
@@ -101,14 +110,22 @@ func runGenerate(root string, dryRun bool) (generateResult, error) {
 
 	result := generateResult{
 		scannedPackages: len(packages),
-		dryRun:          dryRun,
+		dryRun:          options.dryRun,
+		explain:         options.explain,
 		diagnostics:     append([]generator.Diagnostic(nil), diagnostics...),
+	}
+	if options.explain {
+		explanation, err := generator.ExplainGeneration(packages, controllers)
+		if err != nil {
+			return generateResult{}, err
+		}
+		result.explanation = explanation
 	}
 	if hasErrorDiagnostics(diagnostics) {
 		return result, nil
 	}
 
-	if dryRun {
+	if options.dryRun {
 		countDryRunChanges(&result, files)
 		return result, nil
 	}
@@ -178,6 +195,66 @@ func writeGenerateOutput(w io.Writer, result generateResult) error {
 		return err
 	}
 	for _, diagnostic := range result.diagnostics {
+		if _, err := fmt.Fprintf(w, "%s\n", diagnostic.Error()); err != nil {
+			return err
+		}
+		if diagnostic.Hint != "" {
+			if _, err := fmt.Fprintf(w, "hint: %s\n", diagnostic.Hint); err != nil {
+				return err
+			}
+		}
+	}
+	if result.explain {
+		if err := writeGenerateExplanation(w, result.explanation); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeGenerateExplanation(w io.Writer, explanation generator.GenerationExplanation) error {
+	if _, err := fmt.Fprintln(w, "explain: parsed controllers/routes"); err != nil {
+		return err
+	}
+	if len(explanation.Controllers) == 0 {
+		if _, err := fmt.Fprintln(w, "  none"); err != nil {
+			return err
+		}
+	}
+	for _, controller := range explanation.Controllers {
+		if _, err := fmt.Fprintf(w, "  controller %s %s\n", controller.TypeName, controller.BasePath); err != nil {
+			return err
+		}
+		if len(controller.Routes) == 0 {
+			if _, err := fmt.Fprintln(w, "    routes: none"); err != nil {
+				return err
+			}
+		}
+		for _, route := range controller.Routes {
+			if _, err := fmt.Fprintf(w, "    %s %s -> %s\n", route.Method, route.Path, route.HandlerName); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := fmt.Fprintln(w, "explain: rejected route-like methods"); err != nil {
+		return err
+	}
+	if len(explanation.Rejected) == 0 {
+		if _, err := fmt.Fprintln(w, "  none"); err != nil {
+			return err
+		}
+	}
+	for _, rejected := range explanation.Rejected {
+		if _, err := fmt.Fprintf(w, "  %s.%s: %s\n", rejected.TypeName, rejected.HandlerName, rejected.Reason); err != nil {
+			return err
+		}
+		if rejected.Hint != "" {
+			if _, err := fmt.Fprintf(w, "    hint: %s\n", rejected.Hint); err != nil {
+				return err
+			}
+		}
+	}
+	for _, diagnostic := range explanation.Hints {
 		if _, err := fmt.Fprintf(w, "%s\n", diagnostic.Error()); err != nil {
 			return err
 		}

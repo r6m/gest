@@ -64,6 +64,68 @@ func TestGenerateCommandDryRunDoesNotWrite(t *testing.T) {
 	)
 }
 
+func TestGenerateCommandExplainReportsParsedAndRejectedRoutes(t *testing.T) {
+	root := fixtureWithFiles(t, map[string]string{
+		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": `package users
+
+import "github.com/r6m/gest"
+
+// @Controller("/users")
+type UsersController struct{}
+
+// @Get("/")
+func (c *UsersController) List(ctx *gest.Context) error {
+	return nil
+}
+
+func (c *UsersController) GetAll(ctx *gest.Context, req *GetAllRequest) error {
+	return nil
+}
+
+type GetAllRequest struct{}
+`,
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := New().Run(context.Background(), []string{"generate", "--root", root, "--dry-run", "--explain"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%q", code, stderr.String())
+	}
+	output := stdout.String()
+	assertOutputContains(t, output,
+		"explain: parsed controllers/routes",
+		"controller UsersController /users",
+		"GET / -> List",
+		"explain: rejected route-like methods",
+		"UsersController.GetAll: method has a valid Gest handler signature but no route decorator",
+		"hint: add @Get, @Post, @Put, @Patch, or @Delete above GetAll",
+		"GEN_CONTROLLER_NOT_PROVIDED",
+		"hint: add gest.Controller(NewUsersController)",
+	)
+}
+
+func TestGenerateCommandExplainOutputIsStable(t *testing.T) {
+	root := fixtureWithFiles(t, map[string]string{
+		"go.mod":              "module example.test/app\n\ngo 1.26.2\n",
+		"users/controller.go": validControllerSource(),
+	})
+	var first bytes.Buffer
+	var second bytes.Buffer
+
+	firstCode := New().Run(context.Background(), []string{"generate", "--root", root, "--dry-run", "--explain"}, &first, ioDiscard{})
+	secondCode := New().Run(context.Background(), []string{"generate", "--root", root, "--dry-run", "--explain"}, &second, ioDiscard{})
+
+	if firstCode != 0 || secondCode != 0 {
+		t.Fatalf("exit codes = %d, %d; want 0", firstCode, secondCode)
+	}
+	if first.String() != second.String() {
+		t.Fatalf("explain output changed:\nfirst:\n%s\nsecond:\n%s", first.String(), second.String())
+	}
+}
+
 func TestGenerateCommandInvalidDecoratorExitsNonZero(t *testing.T) {
 	root := fixtureWithFiles(t, map[string]string{
 		"go.mod": "module example.test/app\n\ngo 1.26.2\n",
