@@ -134,7 +134,7 @@ Goal: generate `GestController()` methods from simple comments.
 
 Deferred:
 
-- `@Use`, `@Cache`, `@Throttle`, `@Stream`, `@WebSocket`, import alias resolution, processors, cron jobs. Built-in `@Auth`, `@Roles`, and `@Permissions` are not planned; auth policy is user-owned.
+- `@Cache`, `@Throttle`, import alias resolution beyond current rules, processors, cron jobs, and WebSocket gateways. Built-in `@Auth`, `@Roles`, and `@Permissions` are not planned; auth policy is user-owned. `@Stream` and `@WebSocket` are not MVP decorators.
 
 Exit criteria:
 
@@ -302,9 +302,9 @@ Goal: add advanced features only after real user feedback.
 | P8.5 | Planned | Typed handler performance checkpoint | Verify `gest.Handle(...)` and generated explicit adapters resolve signature shape once at route-definition time, with no per-request signature reflection. |
 | P8.6 | Done | Smarter dev diagnostics | Add framework-aware hints to `gest generate` and `gest dev` for skipped routes, detached decorators, generated controllers not provided in a module, and likely missing module imports. Keep raw Go output visible. |
 | P8.7 | Done | Route generation debug output | Add concise `gest generate --explain` or equivalent output that lists parsed controllers/routes and why route-like methods were rejected. |
-| P8.8 | Planned | Streaming | Add stream and SSE helpers while preserving raw `http.ResponseWriter` escape hatches. |
-| P8.9 | Planned | WebSockets | Add WebSocket routes and socket abstractions as an optional module. |
-| P8.10 | Planned | Queue and scheduler modules | Add job processors and cron/every decorators as optional ecosystem modules. |
+| P8.8 | Planned | Streaming and SSE helpers | Add core HTTP `Context.Stream(...)` and `Context.SSE(...)` helpers while preserving raw `http.ResponseWriter` escape hatches. SSE uses normal `@Get` routes; do not add `@SSE` or `@Stream` decorators in the MVP. |
+| P8.9 | Planned | WebSocket boundary checkpoint | Keep WebSocket out of core runtime. Document and test that core runtime imports no `modules/websocket`; defer gateway implementation to the WebSocket module phase. |
+| P8.10 | Planned | Ecosystem module checkpoint | Verify advanced runtime boundaries before ecosystem modules: core runtime imports no optional modules, generator output stays explicit, and global module semantics are stable enough for events/cache. |
 | P8.11 | Planned | Metrics and tracing modules | Add observability modules after core middleware and context conventions are stable. |
 
 Exit criteria:
@@ -343,6 +343,96 @@ Exit criteria:
 - Nested parent module updates are deterministic and import-correct.
 - CLI work includes command tests for success, failure, dry-run, force, and no-update paths.
 - `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
+
+## Phase 10: Ecosystem Modules
+
+Goal: add optional events, scheduler, cache, and queue modules without expanding core runtime or turning Gest into a platform.
+
+Design rules:
+
+- Keep modules under `modules/...` in the main Go module for now; do not create a separate `contrib` repo, `go.work`, or separate `go.mod` files until APIs stabilize.
+- Put adapters inside each module directory, such as `modules/queue/adapters/memory` and `modules/cache/adapters/redis`.
+- Core runtime must not import ecosystem modules.
+- The generator may emit references to ecosystem module public APIs only when the related decorator is used.
+- User structs are normal providers with constructor-injected services.
+- Use non-generic user handler methods first: `Handle(ctx, event) error`, `Run(ctx) error`, and `Process(ctx, job) error`.
+- Do not add `@Name`; primary decorators provide identity.
+- Events and cache may support explicit global module mode. Queue may support it but should not require it. Scheduler should generally remain module-owned.
+- Do not implement database, auth, mailer, distributed locking, Redis queue, or production queue semantics unless the task explicitly says so.
+
+Recommended layout:
+
+```txt
+modules/
+  events/
+    adapters/
+      memory/
+  scheduler/
+    adapters/
+      memory/
+  cache/
+    adapters/
+      memory/
+      redis/
+  queue/
+    adapters/
+      memory/
+      redis/
+```
+
+| ID | Status | Task | Description |
+| --- | --- | --- | --- |
+| P10.1 | Planned | Add events module | Add `modules/events` with an injectable `*events.Bus`, sync in-process emit/listen behavior, `@OnEvent("name")`, generated listener metadata, and `gest g listener <path>`. Support explicit global module mode. |
+| P10.2 | Planned | Add scheduler module | Add `modules/scheduler` with `@Cron("expr")` and optional `@Every("duration")`, generated task metadata, lifecycle start/stop behavior, and `gest g task <path>`. Start with `Run(ctx context.Context) error` only. |
+| P10.3 | Planned | Add cache module | Add `modules/cache` with a small cache service interface, memory adapter, optional global module mode, typed JSON helpers if useful, and no decorators initially. Defer Redis unless the memory contract is stable. |
+| P10.4 | Planned | Add queue module | Add `modules/queue` with in-memory dev/test adapter, `@Processor("queue.name")`, generated processor metadata, and `gest g processor <path>`. Start with `Process(ctx context.Context, job Payload) error`; defer `queue.Job[T]`, retries, backoff, dead-lettering, and Redis. |
+| P10.5 | Planned | Add ecosystem generator checkpoint | Verify `gest generate`, generated metadata, nested module updates, generated tests, lifecycle shutdown, and no core runtime imports for events/scheduler/cache/queue. |
+| P10.6 | Planned | Add ecosystem examples | Add focused examples showing events, scheduler, cache, and queue usage without database/auth assumptions. Include tests and docs. |
+
+Exit criteria:
+
+- Each ecosystem module is optional and replaceable.
+- Each module keeps its adapters under its own directory.
+- Services, listeners, tasks, and processors use normal constructor injection.
+- Generated metadata contains no `init()`, hidden registries, runtime source scanning, or package scanning.
+- Events/cache global mode works only after explicit app imports.
+- Scheduler shuts down cleanly through app lifecycle hooks.
+- Queue MVP is useful for dev/test without pretending to be production durable infrastructure.
+- CLI generators support nested module paths, dry-run, force, no-update, and generated tests where applicable.
+- `rtk go test ./...` and `rtk proxy golangci-lint run ./...` pass or a concrete blocker is documented.
+
+## Phase 11: WebSocket Module
+
+Goal: add WebSocket support as an optional module without expanding core runtime or copying Socket.IO.
+
+Design rules:
+
+- WebSocket lives under `modules/websocket`.
+- Core runtime must not import `modules/websocket`.
+- Gateway structs are normal providers with constructor-injected services.
+- Use `@Gateway("/path")` on gateway structs and `@Subscribe("event.name")` on gateway methods.
+- User handlers should use plain payload shapes first: `Handle(ctx context.Context, client *websocket.Client, msg Message) error`.
+- Generated gateway metadata must be deterministic and public-API based.
+- Do not add rooms, namespaces, distributed pub/sub, built-in auth policy, or Socket.IO compatibility in the MVP.
+- Middleware/guards should run before upgrade where practical.
+- Keep internal events, queues, SSE, and WebSocket separate concepts.
+
+| ID | Status | Task | Description |
+| --- | --- | --- | --- |
+| P11.1 | Planned | Add WebSocket module API | Add `modules/websocket` with module options, client type, connection lifecycle hooks, JSON message codec, and adapter boundary. Start with one net-http compatible adapter. |
+| P11.2 | Planned | Add gateway metadata generator | Parse `@Gateway("path")` and `@Subscribe("event")`, validate gateway handler signatures, and emit deterministic `GestGateway()` metadata using public WebSocket module APIs. |
+| P11.3 | Planned | Add gateway registration runtime | Have the WebSocket module resolve gateway providers through normal DI, register upgrade routes, dispatch JSON messages by event, and handle cancellation/close errors predictably. |
+| P11.4 | Planned | Add `gest g gateway` | Generate a gateway provider with one example subscription, update the nearest module, generate tests by default, and support nested paths, dry-run, force, no-update, and no-test flags. |
+| P11.5 | Planned | Add WebSocket checkpoint tests | Verify generated metadata, route upgrade behavior, message dispatch, middleware/guard-before-upgrade behavior where practical, shutdown cleanup, no core runtime imports, and no hidden registries. |
+
+Exit criteria:
+
+- A user can create a gateway with constructor-injected services.
+- Generated gateway metadata compiles and is deterministic.
+- WebSocket support is optional and imported only by applications that use it.
+- Core runtime imports no `modules/websocket`.
+- The MVP handles JSON event messages, connection close, and app shutdown cleanly.
+- `rtk go test ./...` and `rtk proxy golangci-lint run ./...` pass or a concrete blocker is documented.
 
 ## Agent Prompt Template
 

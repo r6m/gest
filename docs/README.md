@@ -590,8 +590,11 @@ Gest decorators are Go comments parsed at generation time.
 // @Throttle("login")
 // @Cache("user:{id}", ttl="5m")
 
-// @WebSocket("/rooms/:id")
-// @Stream("text/event-stream")
+// @OnEvent("user.created")
+// @Processor("email.welcome")
+// @Cron("0 */5 * * * *")
+// @Gateway("/ws/chat")
+// @Subscribe("message.send")
 ```
 
 Keep decorator syntax line-based and simple. Avoid complex object syntax inside comments.
@@ -688,8 +691,6 @@ func(ctx *gest.Context, req *Req) (*Res, error)
 func(ctx *gest.Context, req *Req) error
 
 func(w http.ResponseWriter, r *http.Request)
-
-func(ctx *gest.Context, socket *gest.Socket, req *Req) error
 ```
 
 Preferred style:
@@ -908,7 +909,6 @@ Example:
 
 ```go
 // @Get("/events")
-// @Stream("text/event-stream")
 func (c *UserController) Events(
 	ctx *gest.Context,
 	req *UserEventsRequest,
@@ -925,64 +925,70 @@ func (c *UserController) Events(
 }
 ```
 
+SSE uses normal HTTP routes. Do not add `@SSE` or `@Stream` decorators in the MVP. The helper should set `text/event-stream`, flush after sends, respect request cancellation, and update response status tracking.
+
 ---
 
 # 13. WebSockets
 
-Gest should support WebSocket routes through decorators and typed handlers.
+Gest should support WebSocket through an optional module, not core runtime.
 
 ```go
-// @Controller("/chat")
-type ChatController struct {
-	hub *ChatHub
+// @Gateway("/ws/chat")
+type ChatGateway struct {
+	service *ChatService
 }
 
-func NewChatController(hub *ChatHub) *ChatController {
-	return &ChatController{hub: hub}
+func NewChatGateway(service *ChatService) *ChatGateway {
+	return &ChatGateway{service: service}
 }
 
-// @WebSocket("/rooms/:id")
-// @Use(auth.JWTGuard)
-func (c *ChatController) JoinRoom(
-	ctx *gest.Context,
-	socket *gest.Socket,
-	req *JoinRoomRequest,
+// @Subscribe("message.send")
+func (g *ChatGateway) SendMessage(
+	ctx context.Context,
+	client *websocket.Client,
+	msg SendMessage,
 ) error {
-	for {
-		var msg ChatMessage
-
-		if err := socket.ReadJSON(&msg); err != nil {
-			return err
-		}
-
-		c.hub.Broadcast(req.RoomID, msg)
-	}
+	return g.service.Send(ctx, client.ID(), msg)
 }
 ```
 
 DTO:
 
 ```go
-type JoinRoomRequest struct {
-	RoomID string `param:"id" validate:"required"`
+type SendMessage struct {
+	RoomID string `json:"roomId" validate:"required"`
+	Text   string `json:"text" validate:"required"`
 }
 ```
 
-WebSocket backend should be swappable:
+WebSocket module usage:
 
 ```go
 app.Import(
 	websocket.Module(websocket.Options{
-		Engine: websocket.Gorilla(),
+		Path: "/ws",
 	}),
 )
 ```
 
-or:
+Generated metadata should be explicit:
 
 ```go
-websocket.Coder()
+func (g *ChatGateway) GestGateway() websocket.GatewayDefinition {
+	return websocket.GatewayDefinition{
+		Path: "/ws/chat",
+		Subscriptions: []websocket.SubscriptionDefinition{
+			{
+				Event:   "message.send",
+				Handler: websocket.Handle[SendMessage](g.SendMessage),
+			},
+		},
+	}
+}
 ```
+
+WebSocket is separate from internal events, queues, and SSE. Do not build a Socket.IO clone in the MVP. Do not add rooms, namespaces, distributed pub/sub, or built-in auth policy yet. Use existing middleware/guards before upgrade where practical.
 
 ---
 
@@ -1496,13 +1502,35 @@ JWT must not assume a user database or user model.
 
 The following modules are intentionally deferred beyond Phase 7. They should use the same optional module model when implemented.
 
+Keep these modules under `modules/...` for now. Do not split them into a separate `contrib` workspace or separate Go modules until the APIs are stable enough to justify independent releases.
+
+Each module owns its adapters:
+
+```txt
+modules/events/adapters/memory
+modules/scheduler/adapters/memory
+modules/queue/adapters/memory
+modules/queue/adapters/redis
+modules/cache/adapters/memory
+modules/cache/adapters/redis
+```
+
+Core runtime must not import these packages. Applications opt in by importing the module they use.
+
+Recommended global behavior:
+
+- `events`: may be global
+- `cache`: may be global
+- `queue`: may support global but should not require it
+- `scheduler`: usually module-owned, not global by default
+
 ## Queue
 
 BullMQ-like module for Go.
 
 ```go
 queue.Module(queue.Options{
-	Driver: queueasynq.New(queueasynq.Options{
+	Adapter: redisqueue.New(redisqueue.Options{
 		RedisURLFromConfig: "REDIS_URL",
 	}),
 })
@@ -1520,21 +1548,31 @@ func NewWelcomeEmailProcessor(mailer *MailerService) *WelcomeEmailProcessor {
 	return &WelcomeEmailProcessor{mailer: mailer}
 }
 
-// @Process
-func (p *WelcomeEmailProcessor) Handle(
+func (p *WelcomeEmailProcessor) Process(
 	ctx context.Context,
-	job *WelcomeEmailJob,
+	job WelcomeEmailJob,
 ) error {
-	return p.mailer.SendWelcome(job.UserID)
+	return p.mailer.SendWelcome(ctx, job.UserID)
 }
 ```
+
+Use non-generic payload handlers first. Add `queue.Job[T]` later only if users need job metadata such as ID, attempts, or headers in the handler.
 
 ## Scheduler
 
 ```go
 // @Cron("0 */5 * * * *")
-func (j *CleanupJob) Run(ctx context.Context) error {
-	return j.service.Cleanup()
+type CleanupTask struct {
+	service *CleanupService
+}
+
+func NewCleanupTask(service *CleanupService) *CleanupTask {
+	return &CleanupTask{service: service}
+}
+
+// @Cron("0 */5 * * * *")
+func (t *CleanupTask) Run(ctx context.Context) error {
+	return t.service.Cleanup(ctx)
 }
 ```
 
@@ -1597,20 +1635,70 @@ Decorator:
 ## Events
 
 ```go
-events.Emit(ctx, "user.created", UserCreatedEvent{
-	UserID: user.ID,
-})
+type UserService struct {
+	events *events.Bus
+}
+
+func NewUserService(events *events.Bus) *UserService {
+	return &UserService{events: events}
+}
+
+func (s *UserService) Create(ctx context.Context) error {
+	return s.events.Emit(ctx, "user.created", UserCreatedEvent{
+		UserID: "user_123",
+	})
+}
 ```
 
 Handler:
 
 ```go
-// @On("user.created")
-func (h *UserCreatedHandler) Handle(
-	ctx context.Context,
-	event UserCreatedEvent,
-) error {
-	return nil
+// @OnEvent("user.created")
+type SendWelcomeEmailListener struct {
+	mailer *MailerService
+}
+
+func NewSendWelcomeEmailListener(mailer *MailerService) *SendWelcomeEmailListener {
+	return &SendWelcomeEmailListener{mailer: mailer}
+}
+
+func (l *SendWelcomeEmailListener) Handle(ctx context.Context, event UserCreatedEvent) error {
+	return l.mailer.SendWelcome(ctx, event.UserID)
+}
+```
+
+## Cache
+
+Cache should start as an injectable service, not a decorator system.
+
+```go
+cache.Module(cache.Options{
+	Global: true,
+	Store:  memorycache.New(memorycache.Options{}),
+})
+```
+
+Usage:
+
+```go
+type UserService struct {
+	cache *cache.Cache
+}
+
+func NewUserService(cache *cache.Cache) *UserService {
+	return &UserService{cache: cache}
+}
+
+func (s *UserService) Find(ctx context.Context, id string) (*User, error) {
+	var user User
+	if ok, err := s.cache.GetJSON(ctx, "users:"+id, &user); err != nil || ok {
+		return &user, err
+	}
+	user = User{ID: id}
+	if err := s.cache.SetJSON(ctx, "users:"+id, user, time.Minute); err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 ```
 
@@ -1627,6 +1715,10 @@ gest g module project/team
 gest g controller project/team
 gest g service project/team
 gest g resource project/team
+gest g listener users/send-welcome
+gest g processor email/welcome
+gest g task reports/sync
+gest g gateway chat
 gest generate
 gest dev
 gest build
@@ -1642,6 +1734,8 @@ gest g co project/team
 gest g s project/team
 gest g r project/team
 ```
+
+Do not add `gest g cache` unless it generates a concrete cache service wrapper. Most cache usage should be ordinary service code with an injected cache provider.
 
 ---
 
@@ -2260,15 +2354,29 @@ Good errors are a product feature.
 ## Phase 8: Advanced Runtime
 
 - lazy modules
-- lifecycle events
-- auth/guard runtime semantics
-- websocket support
 - streaming response
-- cache/throttle/events modules
-- queue module
-- scheduler
 - metrics
 - tracing
+
+## Phase 9: CLI Resource Generation
+
+- nested module generators
+- generated controller/service tests
+- `gest g resource`
+
+## Phase 10: Ecosystem Modules
+
+- events
+- scheduler
+- cache
+- queue
+
+## Phase 11: WebSocket Module
+
+- optional `modules/websocket`
+- `@Gateway`
+- `@Subscribe`
+- `gest g gateway`
 
 ---
 

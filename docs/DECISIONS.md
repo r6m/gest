@@ -308,6 +308,60 @@ Consequences:
 - They should explain that route decorators must be in the method doc comment immediately above the method.
 - They must not suppress raw `go test` or `go build` output.
 
+## ADR-0018: Ecosystem Modules Are Optional And Self-Contained
+
+Status: Accepted
+
+Events, scheduler, queue, and cache are optional ecosystem modules under `modules/...`, each with its own runtime contracts and adapters inside that module directory.
+
+Rationale:
+
+- These features are useful, but they should not expand the core runtime.
+- Keeping adapters inside each module makes imports explicit and keeps ownership clear.
+- A separate `contrib` multi-module `go.work` layout would add release, replace, CI, and versioning overhead before the APIs are stable.
+- Queue, scheduler, events, and cache are operationally different and should not be forced into one abstraction.
+
+Consequences:
+
+- Use `modules/events`, `modules/scheduler`, `modules/queue`, and `modules/cache` in the main Go module for now.
+- Put adapters under each module, such as `modules/queue/adapters/memory` and `modules/cache/adapters/redis`.
+- Do not create a separate `contrib` workspace until the ecosystem APIs stabilize and release pressure justifies it.
+- Core runtime must not import these modules.
+- The generator may emit references to these modules' public APIs only when their decorators are used.
+- User-facing handler methods should be non-generic first:
+  - `Handle(ctx context.Context, event UserCreated) error`
+  - `Run(ctx context.Context) error`
+  - `Process(ctx context.Context, job WelcomeEmailJob) error`
+- Optional generic wrapper shapes, such as `queue.Job[T]`, are allowed later only when job metadata is needed.
+- `events` and `cache` may support explicit `Global: true`; `queue` may support it but should not default to global; `scheduler` should generally remain module-owned.
+- No `@Name` decorator is needed; primary decorators such as `@OnEvent`, `@Cron`, and `@Processor` provide identity.
+
+## ADR-0019: SSE Is HTTP Runtime, WebSocket Is Optional Module
+
+Status: Accepted
+
+Gest treats Server-Sent Events as a small HTTP runtime helper and WebSocket as an optional module.
+
+Rationale:
+
+- SSE is ordinary long-lived HTTP response behavior and fits naturally in `gest.Context`.
+- WebSocket introduces connection lifecycle, upgrade handling, ping/pong, close codes, backpressure, message codecs, and adapter choices.
+- WebSocket should not expand the core runtime or force a Socket.IO-style abstraction.
+
+Consequences:
+
+- Add SSE to core as `ctx.SSE(...)` and related helper types.
+- SSE uses normal HTTP routes such as `@Get("/events")`; do not add `@SSE` or `@Stream` decorators for the MVP.
+- SSE must respect request cancellation, flush after sends, set `Content-Type: text/event-stream`, and set response status tracking to `200`.
+- WebSocket lives under `modules/websocket`.
+- Core runtime must not import `modules/websocket`.
+- Use `@Gateway("/path")` on gateway structs and `@Subscribe("event.name")` on gateway methods.
+- Gateway structs are normal providers with constructor-injected services.
+- User-facing WebSocket handlers should use plain payload methods first, such as `SendMessage(ctx context.Context, client *websocket.Client, msg SendMessage) error`.
+- Generated gateway metadata must be deterministic and explicit, with no `init()`, hidden registries, runtime source scanning, or package scanning.
+- Do not merge WebSocket with internal events, queue processors, or SSE.
+- Do not add rooms, namespaces, distributed pub/sub, or auth policy in the MVP. Users can apply existing middleware/guards before upgrade where supported.
+
 ## ADR-0006: Tests And Lint Are Required
 
 Status: Accepted

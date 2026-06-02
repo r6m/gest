@@ -264,6 +264,156 @@ CLI generators must understand module trees. Paths such as `projects/members` re
 
 `gest dev` diagnostics should add framework hints after generation/build failures. It should keep raw Go output visible while also explaining common Gest mistakes such as route decorators detached from method doc comments, methods on types without `@Controller`, generated controllers not provided in a module, and provider dependencies whose module import appears to be missing.
 
+## Ecosystem Module Boundary
+
+Events, scheduler, queue, and cache are optional ecosystem modules. They live under `modules/...` in the main Gest Go module until their APIs are stable enough to justify separate versioned modules.
+
+Recommended layout:
+
+```txt
+modules/
+  events/
+    adapters/
+      memory/
+  scheduler/
+    adapters/
+      memory/
+  queue/
+    adapters/
+      memory/
+      redis/
+  cache/
+    adapters/
+      memory/
+      redis/
+```
+
+Each module owns its own adapter contracts. Do not put adapters in a shared top-level adapter package, and do not make core runtime depend on any ecosystem module.
+
+User code should use ordinary providers and constructor injection:
+
+```go
+// @OnEvent("user.created")
+type SendWelcomeEmailListener struct {
+	mailer *MailerService
+}
+
+func NewSendWelcomeEmailListener(mailer *MailerService) *SendWelcomeEmailListener {
+	return &SendWelcomeEmailListener{mailer: mailer}
+}
+
+func (l *SendWelcomeEmailListener) Handle(ctx context.Context, event UserCreated) error {
+	return l.mailer.SendWelcome(ctx, event.UserID)
+}
+```
+
+Queue processors should start with plain payload handlers:
+
+```go
+// @Processor("email.welcome")
+type WelcomeEmailProcessor struct {
+	mailer *MailerService
+}
+
+func (p *WelcomeEmailProcessor) Process(ctx context.Context, job WelcomeEmailJob) error {
+	return p.mailer.SendWelcome(ctx, job.UserID)
+}
+```
+
+Scheduler tasks should start with a single simple shape:
+
+```go
+// @Cron("0 */5 * * * *")
+type SyncReportsTask struct {
+	service *ReportService
+}
+
+func (t *SyncReportsTask) Run(ctx context.Context) error {
+	return t.service.Sync(ctx)
+}
+```
+
+Generator metadata for these modules must be deterministic, explicit, and public-API based. It must not use hidden registries, `init()`, runtime source scanning, or package scanning.
+
+Global usage:
+
+- `events` may be global when an app wants one injectable event bus.
+- `cache` may be global when an app wants one injectable cache service.
+- `queue` may support global mode but should not require it.
+- `scheduler` should usually remain module-owned because scheduled tasks are app behavior, not shared infrastructure.
+
+CLI support should be added only where it produces useful source:
+
+- `gest g listener <path>`
+- `gest g processor <path>`
+- `gest g task <path>`
+
+Do not add `gest g cache` unless it generates a concrete cache service wrapper; most cache use should be ordinary service code.
+
+## Streaming And WebSocket Boundary
+
+SSE is core HTTP runtime behavior. WebSocket is an optional module.
+
+SSE should use normal controller routes:
+
+```go
+// @Get("/events")
+func (c *UsersController) Events(ctx *gest.Context, req *UserEventsRequest) error {
+	return ctx.SSE(func(stream *gest.SSE) error {
+		for event := range c.service.UserEvents(ctx.Context(), req.UserID) {
+			if err := stream.Send("user.updated", event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+```
+
+Required SSE behavior:
+
+- use normal HTTP route metadata
+- no `@SSE` or `@Stream` decorator in the MVP
+- set `Content-Type: text/event-stream`
+- set response status tracking to `200`
+- flush after send/comment operations
+- respect request cancellation
+- expose raw response/request escape hatches unchanged
+
+WebSocket should live under `modules/websocket`:
+
+```go
+// @Gateway("/ws/chat")
+type ChatGateway struct {
+	service *ChatService
+}
+
+func NewChatGateway(service *ChatService) *ChatGateway {
+	return &ChatGateway{service: service}
+}
+
+// @Subscribe("message.send")
+func (g *ChatGateway) SendMessage(
+	ctx context.Context,
+	client *websocket.Client,
+	msg SendMessage,
+) error {
+	return g.service.Send(ctx, client.ID(), msg)
+}
+```
+
+WebSocket rules:
+
+- core runtime must not import `modules/websocket`
+- gateway structs are ordinary providers
+- generated metadata must use public WebSocket module APIs
+- user handlers should use plain payload shapes first, not generic user methods
+- no Socket.IO clone, rooms, namespaces, distributed pub/sub, or built-in auth policy in the MVP
+- middleware/guards should run before upgrade where practical
+- `gest g gateway <path>` may be added when the module exists
+
+SSE, WebSocket, internal events, and queues are separate concepts. They may integrate later, but they must not share one forced abstraction.
+
 ## Error Contract
 
 Expected user mistakes must return structured, actionable errors. Do not panic for normal configuration, provider, route, binding, or decorator failures.
