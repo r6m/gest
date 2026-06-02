@@ -25,7 +25,8 @@ type Options struct {
 // Module returns a Gest module that provides *slog.Logger through DI.
 func Module(options Options) gest.Module {
 	return gest.NewModule(gest.ModuleConfig{
-		Name: "LoggerModule",
+		Name:   "LoggerModule",
+		Global: true,
 		Providers: gest.Providers(
 			gest.Provide(func() (*slog.Logger, error) {
 				return NewLogger(options)

@@ -103,6 +103,69 @@ func (c *lifecycleController) GestController() ControllerDefinition {
 	}
 }
 
+type lifecycleGlobalService struct {
+	*lifecycleRecorder
+}
+
+func newLifecycleGlobalService(events *[]string) *lifecycleGlobalService {
+	return &lifecycleGlobalService{lifecycleRecorder: &lifecycleRecorder{events: events, name: "global"}}
+}
+
+func (s *lifecycleGlobalService) OnModuleInit(context.Context) error {
+	s.record("OnModuleInit")
+	return nil
+}
+
+func (s *lifecycleGlobalService) OnApplicationBootstrap(context.Context) error {
+	s.record("OnApplicationBootstrap")
+	return nil
+}
+
+type lifecycleGlobalConsumer struct {
+	*lifecycleRecorder
+	global *lifecycleGlobalService
+}
+
+func newLifecycleGlobalConsumer(global *lifecycleGlobalService, events *[]string) *lifecycleGlobalConsumer {
+	return &lifecycleGlobalConsumer{
+		lifecycleRecorder: &lifecycleRecorder{events: events, name: "consumer"},
+		global:            global,
+	}
+}
+
+func (s *lifecycleGlobalConsumer) OnModuleInit(context.Context) error {
+	s.record("OnModuleInit")
+	return nil
+}
+
+func (s *lifecycleGlobalConsumer) OnApplicationBootstrap(context.Context) error {
+	s.record("OnApplicationBootstrap")
+	return nil
+}
+
+type lifecycleGlobalController struct {
+	consumer *lifecycleGlobalConsumer
+}
+
+func newLifecycleGlobalController(consumer *lifecycleGlobalConsumer) *lifecycleGlobalController {
+	return &lifecycleGlobalController{consumer: consumer}
+}
+
+func (c *lifecycleGlobalController) GestController() ControllerDefinition {
+	return ControllerDefinition{
+		Name:     "LifecycleGlobalController",
+		BasePath: "/global-lifecycle",
+		Routes: []RouteDefinition{
+			{
+				Name:    "Show",
+				Method:  http.MethodGet,
+				Path:    "/",
+				Handler: emptyHandler,
+			},
+		},
+	}
+}
+
 func TestLifecycleStartupHookOrderAcrossProvidersAndControllers(t *testing.T) {
 	events := []string{}
 	app := New(WithRouter(newFakeRouter()))
@@ -124,6 +187,41 @@ func TestLifecycleStartupHookOrderAcrossProvidersAndControllers(t *testing.T) {
 		"controller.OnModuleInit",
 		"service.OnApplicationBootstrap",
 		"controller.OnApplicationBootstrap",
+	}
+	if !reflect.DeepEqual(events, want) {
+		t.Fatalf("events = %#v, want %#v", events, want)
+	}
+}
+
+func TestLifecycleOrderWithGlobalProviderDependency(t *testing.T) {
+	events := []string{}
+	global := NewModule(ModuleConfig{
+		Name:   "GlobalLifecycleModule",
+		Global: true,
+		Providers: Providers(
+			Value(&events),
+			Provide(newLifecycleGlobalService),
+		),
+	})
+	feature := NewModule(ModuleConfig{
+		Name: "FeatureLifecycleModule",
+		Providers: Providers(
+			Provide(newLifecycleGlobalConsumer),
+			Controller(newLifecycleGlobalController),
+		),
+	})
+	app := New(WithRouter(newFakeRouter()))
+	app.Import(global, feature)
+
+	if err := app.bootstrap(); err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+
+	want := []string{
+		"global.OnModuleInit",
+		"consumer.OnModuleInit",
+		"global.OnApplicationBootstrap",
+		"consumer.OnApplicationBootstrap",
 	}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("events = %#v, want %#v", events, want)

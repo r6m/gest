@@ -50,6 +50,7 @@ func Module(options Options) gest.Module {
 
 	return gest.NewModule(gest.ModuleConfig{
 		Name:      "ConfigModule",
+		Global:    true,
 		Providers: gest.Providers(providers...),
 	})
 }

@@ -56,6 +56,14 @@ func TestModuleRegistersSlogLogger(t *testing.T) {
 	}
 }
 
+func TestModuleIsGlobal(t *testing.T) {
+	definition := logger.Module(logger.Options{}).Definition()
+
+	if !definition.Global {
+		t.Fatal("Global = false, want true")
+	}
+}
+
 func TestServiceCanInjectSlogLogger(t *testing.T) {
 	mod := gest.NewModule(gest.ModuleConfig{
 		Name: "AppModule",

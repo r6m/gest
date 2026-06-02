@@ -6,8 +6,8 @@ import (
 )
 
 var (
-	contextPointerType = reflect.TypeOf((*Context)(nil))
-	errorType          = reflect.TypeOf((*error)(nil)).Elem()
+	contextPointerType = reflect.TypeFor[*Context]()
+	errorType          = reflect.TypeFor[error]()
 )
 
 // Handle wraps a typed controller handler as a runtime HandlerFunc.

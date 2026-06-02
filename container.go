@@ -55,9 +55,21 @@ func (c *container) Invoke(constructor any) (any, error) {
 type containerBuilder struct{}
 
 func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
+	root, err := b.buildModule(mod)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.installGlobals(root); err != nil {
+		return nil, err
+	}
+	return root, nil
+}
+
+func (b *containerBuilder) buildModule(mod Module) (*moduleContainer, error) {
 	definition := mod.Definition()
 	module := &moduleContainer{
 		name:     definition.Name,
+		global:   definition.Global,
 		imports:  make([]*moduleContainer, 0, len(definition.Imports)),
 		ownOrder: make([]*providerState, 0, len(definition.Providers)),
 		own:      make(map[Token]*providerState),
@@ -65,7 +77,7 @@ func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
 	}
 
 	for _, imported := range definition.Imports {
-		importedModule, err := b.build(imported)
+		importedModule, err := b.buildModule(imported)
 		if err != nil {
 			return nil, err
 		}
@@ -93,8 +105,34 @@ func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
 	return module, nil
 }
 
+func (b *containerBuilder) installGlobals(root *moduleContainer) error {
+	modules := allModuleContainers(root)
+	globalProviders := []*providerState{}
+	for _, module := range modules {
+		if !module.global {
+			continue
+		}
+		globalProviders = append(globalProviders, module.ownOrder...)
+	}
+	if len(globalProviders) == 0 {
+		return nil
+	}
+
+	for _, module := range modules {
+		for _, provider := range globalProviders {
+			for _, token := range providerTokens(provider.provider, provider.resultType) {
+				if err := module.addGlobalVisible(token, provider); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 type moduleContainer struct {
 	name     string
+	global   bool
 	imports  []*moduleContainer
 	ownOrder []*providerState
 	own      map[Token]*providerState
@@ -111,7 +149,18 @@ func (m *moduleContainer) addOwn(token Token, provider *providerState) error {
 
 func (m *moduleContainer) addVisible(token Token, provider *providerState) error {
 	if existing, ok := m.visible[token]; ok && existing != provider {
+		if provider.module.global || existing.module.global {
+			return duplicateGlobalProviderError(token, m.name, provider.module.name, existing.module.name)
+		}
 		return duplicateProviderError(token, m.name)
+	}
+	m.visible[token] = provider
+	return nil
+}
+
+func (m *moduleContainer) addGlobalVisible(token Token, provider *providerState) error {
+	if existing, ok := m.visible[token]; ok && existing != provider {
+		return duplicateGlobalProviderError(token, m.name, provider.module.name, existing.module.name)
 	}
 	m.visible[token] = provider
 	return nil
@@ -316,6 +365,19 @@ func duplicateProviderError(token Token, module string) error {
 		Token:   token,
 		Message: "duplicate provider for " + token.String() + " in module " + module,
 		Hint:    "remove one provider or use a distinct name or alias",
+	}
+}
+
+func duplicateGlobalProviderError(token Token, targetModule string, globalModule string, existingModule string) error {
+	return &diError{
+		Code:   "DI_DUPLICATE_PROVIDER",
+		Module: targetModule,
+		Token:  token,
+		Message: "duplicate provider for " + token.String() +
+			" in module " + targetModule +
+			" while installing global module " + globalModule +
+			"; existing provider is from module " + existingModule,
+		Hint: "remove one provider, import only one global module for this token, or use a distinct name or alias",
 	}
 }
 

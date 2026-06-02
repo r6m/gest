@@ -267,7 +267,7 @@ Design rules:
 | P7.5 | Done | JWT module | Add `modules/jwt` for signing/verifying tokens with explicit `Secret` or `SecretFromEnv`; no database or user model assumptions. |
 | P7.6 | Done | No built-in auth module decision | Document that auth, roles, and permissions are user-owned modules; Gest provides guard mechanics and JWT utility only. |
 | P7.7 | Done | Optional modules checkpoint | Verify config/logger/validation/health/jwt are optional, core runtime imports none of them, and an example app can use them together. |
-| P7.8 | Planned | Add explicit global modules | Implement `ModuleConfig.Global` semantics so imported global module providers are available throughout the app graph. Cover config/logger use cases, duplicate provider conflicts, import-order determinism, nested imports, lifecycle order, and no service-locator API. |
+| P7.8 | Done | Add explicit global modules | Implement `ModuleConfig.Global` semantics so imported global module providers are available throughout the app graph. Cover config/logger use cases, duplicate provider conflicts, import-order determinism, nested imports, lifecycle order, and no service-locator API. |
 
 Explicitly out of scope:
 

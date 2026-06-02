@@ -14,6 +14,19 @@ type containerService struct {
 	repository *containerRepository
 }
 
+type containerConfig struct {
+	value string
+}
+
+type containerLogger struct {
+	name string
+}
+
+type containerFeatureService struct {
+	config *containerConfig
+	logger *containerLogger
+}
+
 type containerAlias interface {
 	AliasName() string
 }
@@ -399,6 +412,170 @@ func TestContainerDuplicateImportedProvidersReturnError(t *testing.T) {
 	}
 	if diErr.Code != "DI_DUPLICATE_PROVIDER" {
 		t.Fatalf("Code = %q, want DI_DUPLICATE_PROVIDER", diErr.Code)
+	}
+}
+
+func TestContainerDirectGlobalProviderIsVisibleToUnrelatedModule(t *testing.T) {
+	global := NewModule(ModuleConfig{
+		Name:   "ConfigModule",
+		Global: true,
+		Providers: Providers(
+			Value(&containerConfig{value: "app"}),
+		),
+	})
+	feature := NewModule(ModuleConfig{
+		Name: "FeatureModule",
+		Providers: Providers(
+			Provide(func(config *containerConfig) *containerFeatureService {
+				return &containerFeatureService{config: config}
+			}),
+		),
+	})
+	container := newTestContainer(t, NewModule(ModuleConfig{
+		Name:    "AppModule",
+		Imports: Imports(global, feature),
+	}))
+
+	value, err := container.Resolve(TokenOf[*containerFeatureService]())
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	service, ok := value.(*containerFeatureService)
+	if !ok {
+		t.Fatalf("Resolve returned %T, want *containerFeatureService", value)
+	}
+	if service.config == nil || service.config.value != "app" {
+		t.Fatalf("service.config = %#v, want app config", service.config)
+	}
+}
+
+func TestContainerNestedGlobalProviderIsVisibleToUnrelatedModule(t *testing.T) {
+	global := NewModule(ModuleConfig{
+		Name:   "LoggerModule",
+		Global: true,
+		Providers: Providers(
+			Value(&containerLogger{name: "global"}),
+		),
+	})
+	settings := NewModule(ModuleConfig{
+		Name:    "SettingsModule",
+		Imports: Imports(global),
+	})
+	feature := NewModule(ModuleConfig{
+		Name: "FeatureModule",
+		Providers: Providers(
+			Provide(func(logger *containerLogger) *containerFeatureService {
+				return &containerFeatureService{logger: logger}
+			}),
+		),
+	})
+	container := newTestContainer(t, NewModule(ModuleConfig{
+		Name:    "AppModule",
+		Imports: Imports(settings, feature),
+	}))
+
+	value, err := container.Resolve(TokenOf[*containerFeatureService]())
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	service, ok := value.(*containerFeatureService)
+	if !ok {
+		t.Fatalf("Resolve returned %T, want *containerFeatureService", value)
+	}
+	if service.logger == nil || service.logger.name != "global" {
+		t.Fatalf("service.logger = %#v, want global logger", service.logger)
+	}
+}
+
+func TestContainerGlobalProviderMustBeExplicitlyImportedSomewhere(t *testing.T) {
+	feature := NewModule(ModuleConfig{
+		Name: "FeatureModule",
+		Providers: Providers(
+			Provide(func(config *containerConfig) *containerFeatureService {
+				return &containerFeatureService{config: config}
+			}),
+		),
+	})
+	container := newTestContainer(t, NewModule(ModuleConfig{
+		Name:    "AppModule",
+		Imports: Imports(feature),
+	}))
+
+	_, err := container.Resolve(TokenOf[*containerFeatureService]())
+	if err == nil {
+		t.Fatal("Resolve returned nil error, want missing global provider error")
+	}
+	var diErr *diError
+	if !errors.As(err, &diErr) {
+		t.Fatalf("error type = %T, want *diError", err)
+	}
+	if diErr.Code != "DI_MISSING_PROVIDER" {
+		t.Fatalf("Code = %q, want DI_MISSING_PROVIDER", diErr.Code)
+	}
+}
+
+func TestContainerDuplicateGlobalProvidersReturnDeterministicError(t *testing.T) {
+	first := NewModule(ModuleConfig{
+		Name:   "FirstGlobalModule",
+		Global: true,
+		Providers: Providers(
+			Value(&containerConfig{value: "first"}),
+		),
+	})
+	second := NewModule(ModuleConfig{
+		Name:   "SecondGlobalModule",
+		Global: true,
+		Providers: Providers(
+			Value(&containerConfig{value: "second"}),
+		),
+	})
+
+	_, err := NewContainer(NewModule(ModuleConfig{
+		Name:    "AppModule",
+		Imports: Imports(first, second),
+	}))
+	if err == nil {
+		t.Fatal("NewContainer returned nil error, want duplicate global provider error")
+	}
+	var diErr *diError
+	if !errors.As(err, &diErr) {
+		t.Fatalf("error type = %T, want *diError", err)
+	}
+	if diErr.Code != "DI_DUPLICATE_PROVIDER" {
+		t.Fatalf("Code = %q, want DI_DUPLICATE_PROVIDER", diErr.Code)
+	}
+	if diErr.Module != "AppModule" {
+		t.Fatalf("Module = %q, want AppModule", diErr.Module)
+	}
+	if !strings.Contains(err.Error(), "SecondGlobalModule") || !strings.Contains(err.Error(), "FirstGlobalModule") {
+		t.Fatalf("error = %q, want both conflicting global module names", err.Error())
+	}
+}
+
+func TestContainerGlobalProviderConflictsWithLocalProvider(t *testing.T) {
+	global := NewModule(ModuleConfig{
+		Name:   "ConfigModule",
+		Global: true,
+		Providers: Providers(
+			Value(&containerConfig{value: "global"}),
+		),
+	})
+	feature := NewModule(ModuleConfig{
+		Name: "FeatureModule",
+		Providers: Providers(
+			Value(&containerConfig{value: "local"}),
+		),
+	})
+
+	_, err := NewContainer(NewModule(ModuleConfig{
+		Name:    "AppModule",
+		Imports: Imports(global, feature),
+	}))
+	if err == nil {
+		t.Fatal("NewContainer returned nil error, want duplicate provider error")
+	}
+	if !strings.Contains(err.Error(), "FeatureModule") || !strings.Contains(err.Error(), "ConfigModule") {
+		t.Fatalf("error = %q, want target and global module context", err.Error())
 	}
 }
 

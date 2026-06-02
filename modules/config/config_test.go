@@ -31,6 +31,14 @@ func TestServiceLoadsEnvFile(t *testing.T) {
 	}
 }
 
+func TestModuleIsGlobal(t *testing.T) {
+	definition := config.Module(config.Options{}).Definition()
+
+	if !definition.Global {
+		t.Fatal("Global = false, want true")
+	}
+}
+
 func TestLaterEnvFileOverridesEarlier(t *testing.T) {
 	first := writeEnv(t, "first.env", "PORT=3000\n")
 	second := writeEnv(t, "second.env", "PORT=4000\n")
