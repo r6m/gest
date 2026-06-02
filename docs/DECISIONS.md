@@ -120,13 +120,13 @@ Consequences:
 
 Status: Accepted
 
-Phase 7 official modules are `config`, `logger`, `validation`, `health`, `jwt`, and `auth`.
+Phase 7 official modules are `config`, `logger`, `validation`, `health`, and `jwt`. `modules/auth` is deferred until guard/runtime auth semantics exist.
 
 Rationale:
 
 - These modules prove the extension model without taking ownership of application infrastructure.
 - Config, logging, validation, health, and JWT are common enough to provide as conveniences.
-- Auth must remain conservative because user identity storage is application-specific.
+- Auth must remain conservative because user identity storage is application-specific, and it should wait for explicit guard/runtime semantics.
 
 Consequences:
 

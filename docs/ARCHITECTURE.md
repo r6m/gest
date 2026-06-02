@@ -175,7 +175,8 @@ Phase 7 official module scope is:
 - `modules/validation`
 - `modules/health`
 - `modules/jwt`
-- `modules/auth`
+
+`modules/auth` is deferred until guard/runtime auth semantics exist.
 
 Official modules must:
 
@@ -200,7 +201,7 @@ Validation should keep core validation behind the `gest.Validator` interface. If
 
 Health should expose simple dependency-free health routes by default.
 
-JWT/auth must not assume a user database, repository, ORM, or user model.
+JWT must not assume a user database, repository, ORM, or user model. Deferred auth work must follow the same rule.
 
 ## Error Contract
 

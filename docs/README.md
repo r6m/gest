@@ -29,8 +29,11 @@ Gest should feel like this:
 ```go
 app.Import(
 	config.Module(config.Options{}),
-	auth.Module(auth.Options{
-		JWTSecretFromEnv: "JWT_SECRET",
+	logger.Module(logger.Options{
+		Format: "json",
+	}),
+	jwt.Module(jwt.Options{
+		SecretFromEnv: "JWT_SECRET",
 	}),
 	reports.Module(reports.Options{}),
 )
@@ -1369,10 +1372,9 @@ logger
 validation
 health
 jwt
-auth
 ```
 
-Cache, throttle, events, queue, scheduler, metrics, tracing, mailer, files, and WebSocket modules are deferred.
+Auth is deferred until guard/runtime auth semantics exist. Cache, throttle, events, queue, scheduler, metrics, tracing, mailer, files, and WebSocket modules are deferred.
 
 ## Config
 
@@ -1432,7 +1434,7 @@ JWT must not assume a user database or user model.
 
 ## Auth
 
-Auth should provide conservative helpers and guard conventions only. It must not assume an ORM, repository, user table, or user model.
+Auth is deferred until guard/runtime auth semantics exist. When implemented, it should provide conservative helpers and guard conventions only, and must not assume an ORM, repository, user table, or user model.
 
 ## Deferred Ecosystem Modules
 
@@ -2206,12 +2208,12 @@ Good errors are a product feature.
 - validation
 - health
 - jwt
-- auth
 
 ## Phase 8: Advanced Runtime
 
 - lazy modules
 - lifecycle events
+- auth/guard runtime semantics
 - websocket support
 - streaming response
 - cache/throttle/events modules

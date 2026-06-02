@@ -261,8 +261,8 @@ Design rules:
 | P7.3 | Done | Validation module | Add `modules/validation` with a concrete `gest.Validator` implementation and explicit app installation if needed. |
 | P7.4 | Done | Health module | Add `modules/health` with `/health`, `/health/live`, and `/health/ready` returning `{"status":"ok"}`. |
 | P7.5 | Done | JWT module | Add `modules/jwt` for signing/verifying tokens with explicit `Secret` or `SecretFromEnv`; no database or user model assumptions. |
-| P7.6 | Planned | Auth module | Add a conservative `modules/auth` layer for auth helpers/guard conventions without user database assumptions. |
-| P7.7 | Done | Optional modules checkpoint | Verify config/logger/validation/health/jwt/auth are optional, core runtime imports none of them, and an example app can use them together. |
+| P7.6 | Blocked | Auth module | Deferred until guard/runtime auth semantics exist; do not add `modules/auth` before guard behavior is designed and implemented. |
+| P7.7 | Done | Optional modules checkpoint | Verify config/logger/validation/health/jwt are optional, core runtime imports none of them, and an example app can use them together. |
 
 Explicitly out of scope:
 
@@ -278,7 +278,7 @@ Exit criteria:
 - Each official module is optional.
 - Users can replace official modules with their own modules without special cases.
 - Each optional module has unit tests and at least one integration-style usage test when it exposes runtime behavior.
-- An example or fixture app imports the Phase 7 modules together where practical.
+- An example or fixture app imports config/logger/validation/health/jwt together where practical.
 - Core runtime imports no `modules/...` package.
 - `rtk proxy golangci-lint run ./...` passes or a concrete blocker is documented.
 
