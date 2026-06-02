@@ -1571,6 +1571,7 @@ Gest should provide:
 
 ```bash
 gest new my-api
+gest new my-api --module example.test/my-api
 gest g module project/team
 gest g controller project/team
 gest g service project/team
@@ -1588,6 +1589,8 @@ gest generate
 gest dev
 gest build
 ```
+
+`gest new` creates a minimal buildable Chi/net-http app with an app module, a hello module, generated controller metadata, `gest.yaml`, and a `/hello` route returning `{"message":"hello"}`. It does not add database, auth, cache, queue, config, or logger modules by default.
 
 Aliases:
 

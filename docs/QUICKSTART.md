@@ -1,6 +1,23 @@
 # Quickstart
 
-This guide follows the compiling app in `examples/hello`.
+Create a starter app with one `/hello` route:
+
+```bash
+go run ./cmd/gest new my-api --module example.test/my-api
+cd my-api
+gest generate
+gest build
+```
+
+`GET /hello` returns:
+
+```json
+{"message":"hello"}
+```
+
+Use `--dry-run` to preview files without writing them. Existing non-empty target directories are refused unless `--force` is passed.
+
+The rest of this guide follows the compiling app in `examples/hello`.
 
 ## Create An App
 

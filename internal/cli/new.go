@@ -1,0 +1,323 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"go/format"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
+
+func (c *CLI) runNew(ctx context.Context, args []string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	options, err := parseNewOptions(args)
+	if err != nil {
+		return err
+	}
+	result, err := c.generateNewApp(options)
+	if err != nil {
+		return err
+	}
+	return writeNewOutput(c.Stdout, result)
+}
+
+type newOptions struct {
+	target  string
+	module  string
+	dryRun  bool
+	force   bool
+	appName string
+}
+
+func parseNewOptions(args []string) (newOptions, error) {
+	var options newOptions
+	targets := make([]string, 0, 1)
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch arg {
+		case "--dry-run":
+			options.dryRun = true
+		case "--force":
+			options.force = true
+		case "--module":
+			index++
+			if index >= len(args) {
+				return newOptions{}, errors.New("new --module requires a value")
+			}
+			options.module = args[index]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return newOptions{}, fmt.Errorf("unknown new flag %q", arg)
+			}
+			targets = append(targets, arg)
+		}
+	}
+	if len(targets) != 1 {
+		return newOptions{}, errors.New("new requires exactly one target directory")
+	}
+	options.target = strings.TrimRight(targets[0], string(filepath.Separator))
+	if options.target == "" || options.target == "." || options.target == ".." {
+		return newOptions{}, fmt.Errorf("invalid target directory %q", targets[0])
+	}
+	options.appName = filepath.Base(filepath.Clean(options.target))
+	if options.module == "" {
+		options.module = options.appName
+	}
+	return options, nil
+}
+
+type newGenerateResult struct {
+	target string
+	files  []string
+	dryRun bool
+}
+
+func (c *CLI) generateNewApp(options newOptions) (newGenerateResult, error) {
+	target := options.target
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(c.WorkDir, target)
+	}
+	target = filepath.Clean(target)
+
+	if err := validateNewTarget(target, options.force); err != nil {
+		return newGenerateResult{}, err
+	}
+
+	files, err := newAppFiles(options)
+	if err != nil {
+		return newGenerateResult{}, err
+	}
+
+	result := newGenerateResult{
+		target: slashRel(c.WorkDir, target),
+		dryRun: options.dryRun,
+	}
+	for _, file := range files {
+		result.files = append(result.files, slashRel(c.WorkDir, filepath.Join(target, file.path)))
+	}
+	if options.dryRun {
+		return result, nil
+	}
+
+	for _, file := range files {
+		path := filepath.Join(target, file.path)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return result, err
+		}
+		if err := os.WriteFile(path, file.content, 0o644); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
+}
+
+func validateNewTarget(target string, force bool) error {
+	info, err := os.Stat(target)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s exists and is not a directory", target)
+	}
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		return err
+	}
+	if len(entries) > 0 && !force {
+		return fmt.Errorf("%s is not empty; use --force to write starter files", target)
+	}
+	return nil
+}
+
+type newAppFile struct {
+	path    string
+	content []byte
+}
+
+func newAppFiles(options newOptions) ([]newAppFile, error) {
+	modulePath := options.module
+	appName := options.appName
+	gestRoot, err := gestModuleRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	sources := []newAppFile{
+		{path: "cmd/api/main.go", content: goSource(fmt.Sprintf(`package main
+
+import (
+	"log"
+
+	"github.com/r6m/gest"
+	"%s/internal/app"
+)
+
+func main() {
+	server := gest.New(gest.WithBootLogs(true))
+	server.Import(app.Module())
+
+	if err := server.Listen(":3000"); err != nil {
+		log.Fatal(err)
+	}
+}
+`, modulePath))},
+		{path: "internal/app/app.module.go", content: goSource(`package app
+
+import (
+	"github.com/r6m/gest"
+	"` + modulePath + `/internal/hello"
+)
+
+func Module() gest.Module {
+	return gest.NewModule(gest.ModuleConfig{
+		Name: "AppModule",
+		Imports: gest.Imports(
+			hello.Module(),
+		),
+	})
+}
+`)},
+		{path: "internal/hello/hello.module.go", content: goSource(`package hello
+
+import "github.com/r6m/gest"
+
+func Module() gest.Module {
+	return gest.NewModule(gest.ModuleConfig{
+		Name: "HelloModule",
+		Providers: gest.Providers(
+			gest.Controller(NewHelloController),
+		),
+	})
+}
+`)},
+		{path: "internal/hello/hello.controller.go", content: goSource(`package hello
+
+import "github.com/r6m/gest"
+
+// @Controller("/")
+type HelloController struct{}
+
+func NewHelloController() *HelloController {
+	return &HelloController{}
+}
+
+// @Get("/hello")
+func (c *HelloController) GetHello(ctx *gest.Context) (*HelloResponse, error) {
+	return &HelloResponse{Message: "hello"}, nil
+}
+`)},
+		{path: "internal/hello/hello.dto.go", content: goSource(`package hello
+
+type HelloResponse struct {
+	Message string ` + "`json:\"message\"`" + `
+}
+`)},
+		{path: "internal/hello/hello_gest.gen.go", content: goSource(`// Code generated by gest. DO NOT EDIT.
+
+package hello
+
+import "github.com/r6m/gest"
+
+func (c *HelloController) GestController() gest.ControllerDefinition {
+	return gest.ControllerDefinition{
+		Name:     "HelloController",
+		BasePath: "/",
+		Routes: []gest.RouteDefinition{
+			{
+				Name:     "GetHello",
+				Method:   "GET",
+				Path:     "/hello",
+				Handler:  gest.JSON(c.GetHello),
+				Response: (*HelloResponse)(nil),
+			},
+		},
+	}
+}
+`)},
+		{path: "gest.yaml", content: []byte(fmt.Sprintf(`project:
+  name: %s
+entry: ./cmd/api
+generate:
+  root: .
+  openapi: false
+build:
+  output: bin/%s
+  test: true
+`, appName, appName))},
+		{path: "go.mod", content: []byte(fmt.Sprintf(`module %s
+
+go 1.26.2
+
+require (
+	github.com/go-chi/chi/v5 v5.3.0 // indirect
+	github.com/r6m/gest v0.0.0
+)
+
+replace github.com/r6m/gest => %s
+`, modulePath, filepath.ToSlash(gestRoot)))},
+		{path: "go.sum", content: []byte(`github.com/go-chi/chi/v5 v5.3.0 h1:halUjDxhshgXHMrao5bB8eNBXo/rnzwr8m5m36glehM=
+github.com/go-chi/chi/v5 v5.3.0/go.mod h1:R+tYY2hNuVUUjxoPtqUdgBqevM9s9njzkTLutVsOCto=
+`)},
+	}
+
+	for _, file := range sources {
+		if strings.Contains(string(file.content), "gest."+"Export()") {
+			return nil, fmt.Errorf("starter file %s contains removed provider export API", file.path)
+		}
+	}
+	return sources, nil
+}
+
+func goSource(source string) []byte {
+	formatted, err := format.Source([]byte(source))
+	if err != nil {
+		return []byte(source)
+	}
+	return formatted
+}
+
+func gestModuleRoot() (string, error) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return "", errors.New("cannot locate gest module root")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..")), nil
+}
+
+func writeNewOutput(w io.Writer, result newGenerateResult) error {
+	if w == nil {
+		w = io.Discard
+	}
+	prefix := ""
+	if result.dryRun {
+		prefix = "DRY-RUN "
+	}
+	for _, path := range result.files {
+		if _, err := fmt.Fprintf(w, "%sCREATE %s\n", prefix, path); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(w, "%sRUN cd %s\n", prefix, result.target); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "%sRUN gest generate\n", prefix); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "%sRUN gest build\n", prefix); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(w, "%sDONE created Gest app %s\n", prefix, result.target)
+	return err
+}

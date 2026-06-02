@@ -14,6 +14,7 @@ type Handler func(context.Context, []string) error
 
 // CLI contains the command handlers used by the gest executable.
 type CLI struct {
+	NewApp             Handler
 	Generate           Handler
 	Build              Handler
 	Dev                Handler
@@ -28,6 +29,7 @@ type CLI struct {
 // New creates a CLI with placeholder handlers for commands implemented in later phases.
 func New() *CLI {
 	command := &CLI{}
+	command.NewApp = command.runNew
 	command.Generate = command.runGenerate
 	command.Build = command.runBuild
 	command.Dev = command.runDev
@@ -43,6 +45,9 @@ func (c *CLI) withDefaults(stdout, stderr io.Writer) *CLI {
 	}
 	if c.Generate == nil {
 		c.Generate = c.runGenerate
+	}
+	if c.NewApp == nil {
+		c.NewApp = c.runNew
 	}
 	if c.Build == nil {
 		c.Build = c.runBuild
@@ -87,6 +92,8 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 			return 1
 		}
 		return 0
+	case "new":
+		err = runHandler(ctx, c.NewApp, args[1:])
 	case "generate":
 		err = runHandler(ctx, c.Generate, args[1:])
 	case "build":
@@ -151,6 +158,7 @@ Usage:
   gest g <subcommand>
 
 Commands:
+  gest new <name>    create a new Gest app
   gest generate      generate Gest metadata
   gest build         generate and build the project
   gest dev           watch, rebuild, and restart the app

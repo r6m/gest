@@ -28,6 +28,7 @@ func TestRootHelp(t *testing.T) {
 	output := stdout.String()
 	for _, want := range []string{
 		"Usage:",
+		"gest new",
 		"gest generate",
 		"gest build",
 		"gest dev",
@@ -65,6 +66,7 @@ func TestCommandsRouteToHandlers(t *testing.T) {
 		want string
 	}{
 		{name: "generate", args: []string{"generate"}, want: "generate"},
+		{name: "new", args: []string{"new"}, want: "new"},
 		{name: "build", args: []string{"build"}, want: "build"},
 		{name: "dev", args: []string{"dev"}, want: "dev"},
 		{name: "g module", args: []string{"g", "module"}, want: "g module"},
@@ -76,6 +78,7 @@ func TestCommandsRouteToHandlers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var called []string
 			command := &CLI{
+				NewApp:             recordHandler(&called, "new"),
 				Generate:           recordHandler(&called, "generate"),
 				Build:              recordHandler(&called, "build"),
 				Dev:                recordHandler(&called, "dev"),

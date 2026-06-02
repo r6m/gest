@@ -184,7 +184,7 @@ Goal: provide the minimum CLI needed for generation and production builds.
 | P4.5 | Done | Implement basic generators | Add `gest g module`, `gest g controller`, and `gest g service`. Prefer AST edits for parent module updates. |
 | P4.6 | Done | Add CLI tests | Cover command parsing, config defaults, dry-run generation, and failure output. |
 | P4.7 | Done | Remove provider export API | Remove `gest.Export()`, `Provider.Exported`, exported-provider checks, unexported-provider errors, and generator/template usage. Imported modules should make all providers available. |
-| P4.8 | Planned | Add `gest new` | Generate a minimal buildable Gest web app with module, service/controller, DTOs, `gest.yaml`, generated metadata, tests, and build/generate workflow. |
+| P4.8 | Done | Add `gest new` | Generate a minimal buildable Gest web app with module, service/controller, DTOs, `gest.yaml`, generated metadata, tests, and build/generate workflow. |
 
 Deferred:
 
