@@ -35,6 +35,38 @@ func TestSchedulerRunsEveryTaskAndStops(t *testing.T) {
 	}
 }
 
+func TestSchedulerShutdownStopsIntervalWorkers(t *testing.T) {
+	s := scheduler.NewScheduler()
+	calls := make(chan struct{}, 4)
+	if err := s.Add(scheduler.Task{
+		Identity: "test.every",
+		Every:    "10ms",
+		Run: func(ctx context.Context) error {
+			calls <- struct{}{}
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	select {
+	case <-calls:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("task did not run before shutdown")
+	}
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+	drain(calls)
+	select {
+	case <-calls:
+		t.Fatal("task ran after shutdown")
+	case <-time.After(40 * time.Millisecond):
+	}
+}
+
 func TestSchedulerRejectsInvalidCron(t *testing.T) {
 	s := scheduler.NewScheduler()
 	err := s.Add(scheduler.Task{
@@ -107,4 +139,14 @@ func (t *describedTask) Run(ctx context.Context) error {
 	_ = ctx
 	t.calls <- struct{}{}
 	return nil
+}
+
+func drain(ch <-chan struct{}) {
+	for {
+		select {
+		case <-ch:
+		default:
+			return
+		}
+	}
 }

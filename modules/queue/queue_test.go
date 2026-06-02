@@ -89,6 +89,42 @@ func TestQueueShutdownHonorsContext(t *testing.T) {
 	}
 }
 
+func TestQueueShutdownStopsProcessorWorkers(t *testing.T) {
+	q := queue.NewQueue(queue.Options{})
+	calls := make(chan testPayload, 2)
+	if err := q.AddProcessor(queue.ProcessorBinding{
+		Queue: "email",
+		Handle: queue.Handle(func(ctx context.Context, payload testPayload) error {
+			calls <- payload
+			return nil
+		}),
+	}); err != nil {
+		t.Fatalf("AddProcessor returned error: %v", err)
+	}
+	if err := q.Start(); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if err := q.Enqueue(context.Background(), "email", testPayload{ID: "before"}); err != nil {
+		t.Fatalf("Enqueue returned error: %v", err)
+	}
+	select {
+	case <-calls:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("processor did not run before shutdown")
+	}
+	if err := q.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+	if err := q.Enqueue(context.Background(), "email", testPayload{ID: "after"}); err != nil {
+		t.Fatalf("Enqueue after shutdown returned error: %v", err)
+	}
+	select {
+	case payload := <-calls:
+		t.Fatalf("processor ran after shutdown with payload %#v", payload)
+	case <-time.After(40 * time.Millisecond):
+	}
+}
+
 func TestCoreRuntimeDoesNotImportQueueModule(t *testing.T) {
 	root := projectRoot(t)
 	files := []string{

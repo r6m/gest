@@ -1071,12 +1071,12 @@ func importsEdit(fileSet *token.FileSet, file *ast.File, modulePath generatorPat
 		if !ok || !isGestImports(callExpr.Fun) {
 			return textEdit{}, errors.New("parent module Imports field is not gest.Imports(...)")
 		}
-		offset := fileSet.Position(callExpr.Rparen).Offset
-		prefix := ""
 		if len(callExpr.Args) > 0 {
-			prefix = "\n"
+			offset := fileSet.Position(callExpr.Args[len(callExpr.Args)-1].End()).Offset
+			return textEdit{offset: offset, text: ",\n\t\t\t" + call}, nil
 		}
-		return textEdit{offset: offset, text: prefix + "\t\t\t" + call + ","}, nil
+		offset := fileSet.Position(callExpr.Rparen).Offset
+		return textEdit{offset: offset, text: "\t\t\t" + call + ","}, nil
 	}
 
 	offset := fileSet.Position(moduleConfig.Rbrace).Offset
@@ -1101,12 +1101,12 @@ func providersEdit(fileSet *token.FileSet, file *ast.File, call string) (textEdi
 		if !ok || !isGestProviders(callExpr.Fun) {
 			return textEdit{}, errors.New("module Providers field is not gest.Providers(...)")
 		}
-		offset := fileSet.Position(callExpr.Rparen).Offset
-		prefix := ""
 		if len(callExpr.Args) > 0 {
-			prefix = "\n"
+			offset := fileSet.Position(callExpr.Args[len(callExpr.Args)-1].End()).Offset
+			return textEdit{offset: offset, text: ",\n\t\t\t" + call}, nil
 		}
-		return textEdit{offset: offset, text: prefix + "\t\t\t" + call + ","}, nil
+		offset := fileSet.Position(callExpr.Rparen).Offset
+		return textEdit{offset: offset, text: "\t\t\t" + call + ","}, nil
 	}
 
 	offset := fileSet.Position(moduleConfig.Rbrace).Offset
