@@ -162,6 +162,9 @@ func TestContainerMissingProviderErrorIncludesTokenAndDependent(t *testing.T) {
 	if !strings.Contains(err.Error(), "missing provider") {
 		t.Fatalf("error = %q, want missing provider context", err.Error())
 	}
+	if !strings.Contains(err.Error(), "import a module that provides") {
+		t.Fatalf("error = %q, want import-provides hint", err.Error())
+	}
 }
 
 func TestContainerCycleErrorIncludesCyclePath(t *testing.T) {
@@ -296,13 +299,13 @@ func TestContainerNamedProvidersDisambiguateDuplicateTypes(t *testing.T) {
 	}
 }
 
-func TestContainerImportedExportedProviderIsVisible(t *testing.T) {
+func TestContainerImportedProviderIsVisible(t *testing.T) {
 	imported := NewModule(ModuleConfig{
 		Name: "ImportedModule",
 		Providers: Providers(
 			Provide(func() *containerRepository {
 				return &containerRepository{name: "imported"}
-			}, Export()),
+			}),
 		),
 	})
 	container := newTestContainer(t, NewModule(ModuleConfig{
@@ -328,14 +331,18 @@ func TestContainerImportedExportedProviderIsVisible(t *testing.T) {
 	}
 }
 
-func TestContainerImportedUnexportedProviderIsNotVisible(t *testing.T) {
-	imported := NewModule(ModuleConfig{
-		Name: "ImportedModule",
+func TestContainerNestedImportedProviderIsVisible(t *testing.T) {
+	nested := NewModule(ModuleConfig{
+		Name: "NestedModule",
 		Providers: Providers(
 			Provide(func() *containerRepository {
-				return &containerRepository{}
+				return &containerRepository{name: "nested"}
 			}),
 		),
+	})
+	imported := NewModule(ModuleConfig{
+		Name:    "ImportedModule",
+		Imports: Imports(nested),
 	})
 	container := newTestContainer(t, NewModule(ModuleConfig{
 		Name:    "AppModule",
@@ -347,16 +354,51 @@ func TestContainerImportedUnexportedProviderIsNotVisible(t *testing.T) {
 		),
 	}))
 
-	_, err := container.Resolve(TokenOf[*containerService]())
-	if err == nil {
-		t.Fatal("Resolve returned nil error, want missing provider error")
+	value, err := container.Resolve(TokenOf[*containerService]())
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
 	}
+	service, ok := value.(*containerService)
+	if !ok {
+		t.Fatalf("Resolve returned %T, want *containerService", value)
+	}
+	if service.repository.name != "nested" {
+		t.Fatalf("repository.name = %q, want %q", service.repository.name, "nested")
+	}
+}
+
+func TestContainerDuplicateImportedProvidersReturnError(t *testing.T) {
+	first := NewModule(ModuleConfig{
+		Name: "FirstModule",
+		Providers: Providers(
+			Provide(func() *containerRepository {
+				return &containerRepository{name: "first"}
+			}),
+		),
+	})
+	second := NewModule(ModuleConfig{
+		Name: "SecondModule",
+		Providers: Providers(
+			Provide(func() *containerRepository {
+				return &containerRepository{name: "second"}
+			}),
+		),
+	})
+
+	_, err := NewContainer(NewModule(ModuleConfig{
+		Name:    "AppModule",
+		Imports: Imports(first, second),
+	}))
+	if err == nil {
+		t.Fatal("NewContainer returned nil error, want duplicate provider error")
+	}
+
 	var diErr *diError
 	if !errors.As(err, &diErr) {
 		t.Fatalf("error type = %T, want *diError", err)
 	}
-	if diErr.Code != "DI_MISSING_PROVIDER" {
-		t.Fatalf("Code = %q, want DI_MISSING_PROVIDER", diErr.Code)
+	if diErr.Code != "DI_DUPLICATE_PROVIDER" {
+		t.Fatalf("Code = %q, want DI_DUPLICATE_PROVIDER", diErr.Code)
 	}
 }
 
@@ -368,6 +410,33 @@ func TestContainerAliasResolutionWorks(t *testing.T) {
 				return &containerAliasImpl{}
 			}, As[containerAlias]()),
 		),
+	}))
+
+	value, err := container.Resolve(TokenOf[containerAlias]())
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	alias, ok := value.(containerAlias)
+	if !ok {
+		t.Fatalf("Resolve returned %T, want containerAlias", value)
+	}
+	if alias.AliasName() != "alias" {
+		t.Fatalf("AliasName() = %q, want %q", alias.AliasName(), "alias")
+	}
+}
+
+func TestContainerImportedAliasResolutionWorks(t *testing.T) {
+	imported := NewModule(ModuleConfig{
+		Name: "ImportedModule",
+		Providers: Providers(
+			Provide(func() *containerAliasImpl {
+				return &containerAliasImpl{}
+			}, As[containerAlias]()),
+		),
+	})
+	container := newTestContainer(t, NewModule(ModuleConfig{
+		Name:    "AppModule",
+		Imports: Imports(imported),
 	}))
 
 	value, err := container.Resolve(TokenOf[containerAlias]())

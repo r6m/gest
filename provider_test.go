@@ -65,14 +65,6 @@ func TestValueSetsValueKindAndSingletonScope(t *testing.T) {
 	}
 }
 
-func TestExportMarksProviderExported(t *testing.T) {
-	provider := Provide(newProviderTestService, Export())
-
-	if !provider.Exported {
-		t.Fatal("Exported = false, want true")
-	}
-}
-
 func TestNameSetsName(t *testing.T) {
 	provider := Provide(newProviderTestService, Name("service.main"))
 

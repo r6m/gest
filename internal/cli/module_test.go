@@ -30,6 +30,7 @@ func TestGenerateModuleCreatesModuleFile(t *testing.T) {
 		"func Module(options Options) gest.Module",
 		`Name: "project.team"`,
 	)
+	assertOutputExcludes(t, content, removedExportCall())
 }
 
 func TestGenerateModuleDryRunWritesNothing(t *testing.T) {

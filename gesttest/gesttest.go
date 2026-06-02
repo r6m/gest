@@ -250,7 +250,6 @@ func replacementProvider(t TB, provider gest.Provider, override override) gest.P
 	return gest.Provider{
 		Kind:        provider.Kind,
 		Constructor: replacementConstructor,
-		Exported:    provider.Exported,
 		Scope:       provider.Scope,
 		Name:        provider.Name,
 		Aliases:     append([]gest.Token(nil), provider.Aliases...),

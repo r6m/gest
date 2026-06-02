@@ -62,7 +62,6 @@ func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
 		ownOrder: make([]*providerState, 0, len(definition.Providers)),
 		own:      make(map[Token]*providerState),
 		visible:  make(map[Token]*providerState),
-		exported: make(map[Token]*providerState),
 	}
 
 	for _, imported := range definition.Imports {
@@ -71,7 +70,7 @@ func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
 			return nil, err
 		}
 		module.imports = append(module.imports, importedModule)
-		for token, provider := range importedModule.exported {
+		for token, provider := range importedModule.visible {
 			if err := module.addVisible(token, provider); err != nil {
 				return nil, err
 			}
@@ -88,9 +87,6 @@ func (b *containerBuilder) build(mod Module) (*moduleContainer, error) {
 			if err := module.addOwn(token, state); err != nil {
 				return nil, err
 			}
-			if provider.Exported {
-				module.exported[token] = state
-			}
 		}
 	}
 
@@ -103,7 +99,6 @@ type moduleContainer struct {
 	ownOrder []*providerState
 	own      map[Token]*providerState
 	visible  map[Token]*providerState
-	exported map[Token]*providerState
 }
 
 func (m *moduleContainer) addOwn(token Token, provider *providerState) error {
@@ -296,7 +291,7 @@ func missingProviderError(token, dependent Token, module string) error {
 		Token:     token,
 		Dependent: dependent,
 		Message:   message,
-		Hint:      "add a provider or import a module that exports " + token.String(),
+		Hint:      "add a provider or import a module that provides " + token.String(),
 	}
 }
 

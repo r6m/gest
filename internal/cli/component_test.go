@@ -71,6 +71,7 @@ func TestGenerateControllerUpdatesModuleProviders(t *testing.T) {
 		"Providers: gest.Providers(",
 		"gest.Controller(NewTeamController),",
 	)
+	assertOutputExcludes(t, module, removedExportCall())
 }
 
 func TestGenerateServiceUpdatesModuleProviders(t *testing.T) {
@@ -93,6 +94,7 @@ func TestGenerateServiceUpdatesModuleProviders(t *testing.T) {
 		"Providers: gest.Providers(",
 		"gest.Provide(NewTeamService),",
 	)
+	assertOutputExcludes(t, module, removedExportCall())
 }
 
 func TestGenerateComponentDryRunWritesNothing(t *testing.T) {

@@ -29,8 +29,7 @@ type Provider struct {
 	Constructor any
 	Value       any
 
-	Exported bool
-	Scope    Scope
+	Scope Scope
 
 	Name    string
 	Aliases []Token
@@ -74,13 +73,6 @@ func Value(value any, options ...ProviderOption) Provider {
 	}
 
 	return p
-}
-
-// Export marks a provider as exported from its module.
-func Export() ProviderOption {
-	return func(p *Provider) {
-		p.Exported = true
-	}
 }
 
 // Name assigns a string name to a provider.

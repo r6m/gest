@@ -187,3 +187,15 @@ func assertOutputContains(t *testing.T, output string, wants ...string) {
 		}
 	}
 }
+
+func assertOutputExcludes(t *testing.T, output string, unexpected string) {
+	t.Helper()
+
+	if strings.Contains(output, unexpected) {
+		t.Fatalf("expected output not to contain %q, got:\n%s", unexpected, output)
+	}
+}
+
+func removedExportCall() string {
+	return "gest." + "Export()"
+}
