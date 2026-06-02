@@ -40,8 +40,5 @@ type RouteMetadata struct {
 // HandlerFunc is the runtime route handler shape.
 type HandlerFunc func(ctx *Context) error
 
-// GuardFactory is a placeholder for later guard resolution behavior.
-type GuardFactory func(Container) (any, error)
-
 // Middleware is a placeholder for later middleware adapter behavior.
 type Middleware func(HandlerFunc) HandlerFunc

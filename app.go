@@ -167,8 +167,9 @@ func (a *App) bootstrap() error {
 	}
 
 	seenRoutes := make(map[string]struct{})
+	appContainer := &container{root: rootContainer}
 	for _, controller := range controllers {
-		if err := a.registerController(controller, seenRoutes); err != nil {
+		if err := a.registerController(controller, appContainer, seenRoutes); err != nil {
 			return err
 		}
 	}
@@ -254,7 +255,7 @@ func resolveController(provider *providerState) (controllerRegistration, error) 
 	}, nil
 }
 
-func (a *App) registerController(controller controllerRegistration, seenRoutes map[string]struct{}) error {
+func (a *App) registerController(controller controllerRegistration, appContainer Container, seenRoutes map[string]struct{}) error {
 	definition := controller.definition
 	for _, route := range definition.Routes {
 		fullPath := joinRoutePath(definition.BasePath, route.Path)
@@ -263,17 +264,41 @@ func (a *App) registerController(controller controllerRegistration, seenRoutes m
 			return duplicateRouteError(key)
 		}
 		seenRoutes[key] = struct{}{}
+		guards, err := resolveRouteGuards(route, appContainer)
+		if err != nil {
+			return err
+		}
 		a.routes = append(a.routes, newOpenAPIRoute(definition, route, fullPath))
 		a.router.Handle(RouteRuntimeConfig{
 			Method:    route.Method,
 			Path:      fullPath,
 			Handler:   route.Handler,
+			Guards:    guards,
 			Validator: a.validator,
 		})
 		a.logBoot("GEST route: %s %s -> %s.%s", strings.ToUpper(route.Method), fullPath, definition.Name, route.Name)
 	}
 
 	return nil
+}
+
+func resolveRouteGuards(route RouteDefinition, appContainer Container) ([]Guard, error) {
+	if len(route.Guards) == 0 {
+		return nil, nil
+	}
+
+	guards := make([]Guard, 0, len(route.Guards))
+	for _, factory := range route.Guards {
+		guard, err := factory(appContainer)
+		if err != nil {
+			return nil, fmt.Errorf("ROUTE_GUARD_RESOLVE: route %s guard failed to resolve: %w", route.Name, err)
+		}
+		if guard == nil {
+			return nil, fmt.Errorf("ROUTE_GUARD_RESOLVE: route %s guard factory returned nil", route.Name)
+		}
+		guards = append(guards, guard)
+	}
+	return guards, nil
 }
 
 func (a *App) callStartupHook(ctx context.Context, hook string) error {
@@ -407,13 +432,14 @@ func (r *defaultRouter) Group(prefix string, fn func(group RouterAdapter)) {
 }
 
 func (r *defaultRouter) Handle(route RouteRuntimeConfig) {
+	handler := GuardedHandler(route.Handler, route.Guards)
 	r.router.MethodFunc(strings.ToUpper(route.Method), route.Path, func(response http.ResponseWriter, request *http.Request) {
 		context := NewContext(response, request)
 		context.SetValidator(route.Validator)
 		for _, key := range chi.RouteContext(request.Context()).URLParams.Keys {
 			context.SetParam(key, chi.URLParam(request, key))
 		}
-		if err := route.Handler(context); err != nil {
+		if err := handler(context); err != nil {
 			_ = WriteError(response, err)
 		}
 	})

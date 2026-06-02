@@ -18,5 +18,6 @@ type RouteRuntimeConfig struct {
 	Method    string
 	Path      string
 	Handler   HandlerFunc
+	Guards    []Guard
 	Validator Validator
 }

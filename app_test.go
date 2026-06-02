@@ -854,6 +854,199 @@ func TestAppMapsHandlerFrameworkErrors(t *testing.T) {
 	}
 }
 
+func TestAppRunsGuardsBeforeHandler(t *testing.T) {
+	order := []string{}
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(Controller(func() *guardController {
+			return &guardController{
+				handler: func(ctx *Context) error {
+					order = append(order, "handler")
+					return ctx.NoContent(http.StatusNoContent)
+				},
+				guards: []GuardFactory{staticGuardFactory(GuardFunc(func(ctx *Context) error {
+					order = append(order, "guard")
+					return nil
+				}))},
+			}
+		})),
+	}))
+
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/guarded", nil))
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+	assertStringSlice(t, order, []string{"guard", "handler"})
+}
+
+func TestAppFailingGuardPreventsHandler(t *testing.T) {
+	called := false
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(Controller(func() *guardController {
+			return &guardController{
+				handler: func(ctx *Context) error {
+					called = true
+					return ctx.NoContent(http.StatusNoContent)
+				},
+				guards: []GuardFactory{staticGuardFactory(GuardFunc(func(ctx *Context) error {
+					return Forbidden("blocked")
+				}))},
+			}
+		})),
+	}))
+
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/guarded", nil))
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusForbidden)
+	}
+	if called {
+		t.Fatal("handler was called after failing guard")
+	}
+}
+
+func TestAppRunsGuardsInDeclaredOrder(t *testing.T) {
+	order := []string{}
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(Controller(func() *guardController {
+			return &guardController{
+				handler: func(ctx *Context) error {
+					order = append(order, "handler")
+					return ctx.NoContent(http.StatusNoContent)
+				},
+				guards: []GuardFactory{
+					staticGuardFactory(recordGuard("first", &order)),
+					staticGuardFactory(recordGuard("second", &order)),
+				},
+			}
+		})),
+	}))
+
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/guarded", nil))
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+	assertStringSlice(t, order, []string{"first", "second", "handler"})
+}
+
+func TestAppGuardCanSetContextValueForHandler(t *testing.T) {
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(Controller(func() *guardController {
+			return &guardController{
+				handler: func(ctx *Context) error {
+					value, _ := ctx.Get("guard-value")
+					return ctx.JSON(http.StatusOK, map[string]any{"value": value})
+				},
+				guards: []GuardFactory{staticGuardFactory(GuardFunc(func(ctx *Context) error {
+					ctx.Set("guard-value", "from guard")
+					return nil
+				}))},
+			}
+		})),
+	}))
+
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/guarded", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if got := recorder.Body.String(); got != "{\"value\":\"from guard\"}\n" {
+		t.Fatalf("body = %q, want guard value JSON", got)
+	}
+}
+
+func TestAppDIResolvedGuardReceivesDependencies(t *testing.T) {
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(
+			Provide(func() *guardDependency {
+				return &guardDependency{value: "allowed"}
+			}),
+			Controller(func() *guardController {
+				return &guardController{
+					handler: func(ctx *Context) error {
+						value, _ := ctx.Get("dependency")
+						return ctx.JSON(http.StatusOK, map[string]any{"dependency": value})
+					},
+					guards: []GuardFactory{dependencyGuardFactory},
+				}
+			}),
+		),
+	}))
+
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/guarded", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if got := recorder.Body.String(); got != "{\"dependency\":\"allowed\"}\n" {
+		t.Fatalf("body = %q, want dependency JSON", got)
+	}
+}
+
+func TestAppMissingGuardDependencyReturnsStartupError(t *testing.T) {
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(Controller(func() *guardController {
+			return &guardController{
+				handler: emptyHandler,
+				guards:  []GuardFactory{dependencyGuardFactory},
+			}
+		})),
+	}))
+
+	err := app.bootstrap()
+	if err == nil {
+		t.Fatal("bootstrap returned nil error, want guard dependency error")
+	}
+	if !strings.Contains(err.Error(), "ROUTE_GUARD_RESOLVE") {
+		t.Fatalf("error = %q, want guard resolve code", err)
+	}
+	if !strings.Contains(err.Error(), "DI_MISSING_PROVIDER") {
+		t.Fatalf("error = %q, want missing provider diagnostic", err)
+	}
+}
+
+func TestAppNoGuardLeavesRouteBehaviorUnchanged(t *testing.T) {
+	app := New()
+	app.Import(NewModule(ModuleConfig{
+		Name: "AppModule",
+		Providers: Providers(Controller(func() *guardController {
+			return &guardController{
+				handler: func(ctx *Context) error {
+					return ctx.JSON(http.StatusOK, map[string]string{"message": "ok"})
+				},
+			}
+		})),
+	}))
+
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/guarded", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if got := recorder.Body.String(); got != "{\"message\":\"ok\"}\n" {
+		t.Fatalf("body = %q, want unchanged route JSON", got)
+	}
+}
+
 func duplicateControllerDefinition(name string) ControllerDefinition {
 	return ControllerDefinition{
 		Name: name,
@@ -887,6 +1080,76 @@ func (c *errorController) GestController() ControllerDefinition {
 				},
 			},
 		},
+	}
+}
+
+type guardController struct {
+	handler HandlerFunc
+	guards  []GuardFactory
+}
+
+func (c *guardController) GestController() ControllerDefinition {
+	return ControllerDefinition{
+		Name: "GuardController",
+		Routes: []RouteDefinition{
+			{
+				Name:    "Guarded",
+				Method:  http.MethodGet,
+				Path:    "/guarded",
+				Handler: c.handler,
+				Guards:  c.guards,
+			},
+		},
+	}
+}
+
+type guardDependency struct {
+	value string
+}
+
+type dependencyGuard struct {
+	dependency *guardDependency
+}
+
+func (g *dependencyGuard) CanActivate(ctx *Context) error {
+	ctx.Set("dependency", g.dependency.value)
+	return nil
+}
+
+func dependencyGuardFactory(container Container) (Guard, error) {
+	value, err := container.Resolve(TokenOf[*guardDependency]())
+	if err != nil {
+		return nil, err
+	}
+	dependency, ok := value.(*guardDependency)
+	if !ok {
+		return nil, errors.New("dependency guard received unexpected dependency type")
+	}
+	return &dependencyGuard{dependency: dependency}, nil
+}
+
+func staticGuardFactory(guard Guard) GuardFactory {
+	return func(Container) (Guard, error) {
+		return guard, nil
+	}
+}
+
+func recordGuard(value string, order *[]string) Guard {
+	return GuardFunc(func(ctx *Context) error {
+		*order = append(*order, value)
+		return nil
+	})
+}
+
+func assertStringSlice(t *testing.T, got []string, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("slice length = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("slice[%d] = %q, want %q; full slice %#v", i, got[i], want[i], got)
+		}
 	}
 }
 
