@@ -1,6 +1,7 @@
 package chiadapter
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -141,6 +142,73 @@ func TestAdapterMiddlewareOrderWorks(t *testing.T) {
 		if order[i] != want[i] {
 			t.Fatalf("order[%d] = %q, want %q; full order %#v", i, order[i], want[i], order)
 		}
+	}
+}
+
+func TestAdapterServesSSEThroughNormalGetRoute(t *testing.T) {
+	adapter := New()
+	observedStatus := -1
+	adapter.Use(gest.MiddlewareFunc(func(next gest.HandlerFunc) gest.HandlerFunc {
+		return func(ctx *gest.Context) error {
+			err := next(ctx)
+			observedStatus = ctx.ResponseStatus()
+			return err
+		}
+	}))
+	adapter.Handle(gest.RouteRuntimeConfig{
+		Method: http.MethodGet,
+		Path:   "/events",
+		Handler: func(ctx *gest.Context) error {
+			return ctx.SSE(func(events *gest.SSE) error {
+				return events.Send("ready", map[string]string{"id": "evt-1"})
+			})
+		},
+	})
+
+	recorder := httptest.NewRecorder()
+	adapter.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/events", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if observedStatus != http.StatusOK {
+		t.Fatalf("observed status = %d, want %d", observedStatus, http.StatusOK)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want %q", got, "text/event-stream")
+	}
+	if got, want := recorder.Body.String(), "event: ready\ndata: {\"id\":\"evt-1\"}\n\n"; got != want {
+		t.Fatalf("body = %q, want %q", got, want)
+	}
+	if !recorder.Flushed {
+		t.Fatal("recorder.Flushed = false, want true")
+	}
+}
+
+func TestAdapterPropagatesSSEHandlerErrorToErrorWriter(t *testing.T) {
+	adapter := New()
+	adapter.Handle(gest.RouteRuntimeConfig{
+		Method: http.MethodGet,
+		Path:   "/events",
+		Handler: func(ctx *gest.Context) error {
+			return ctx.SSE(func(events *gest.SSE) error {
+				return errors.New("source failed")
+			})
+		},
+	})
+
+	recorder := httptest.NewRecorder()
+	adapter.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/events", nil))
+	response := recorder.Result()
+
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d after SSE status was written", response.StatusCode, http.StatusOK)
+	}
+	if got := response.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", got)
+	}
+	if got := recorder.Body.String(); got != "{\"error\":{\"kind\":\"Internal\",\"code\":\"INTERNAL\",\"message\":\"Internal Server Error\"}}\n" {
+		t.Fatalf("body = %q, want propagated framework error body", got)
 	}
 }
 
