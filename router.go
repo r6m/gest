@@ -22,3 +22,14 @@ type RouteRuntimeConfig struct {
 	Guards     []Guard
 	Validator  Validator
 }
+
+// RouteRegistrationContext lets optional modules register HTTP routes after DI is built.
+type RouteRegistrationContext struct {
+	Container Container
+	Register  func(RouteRuntimeConfig) error
+}
+
+// RouteRegistrar is implemented by optional module providers that register routes.
+type RouteRegistrar interface {
+	RegisterRoutes(ctx RouteRegistrationContext) error
+}

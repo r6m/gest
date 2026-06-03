@@ -188,6 +188,9 @@ func (a *App) bootstrap() error {
 			return err
 		}
 	}
+	if err := a.registerModuleRoutes(appContainer, seenRoutes); err != nil {
+		return err
+	}
 	if err := a.registerOpenAPI(seenRoutes); err != nil {
 		return err
 	}
@@ -288,11 +291,6 @@ func (a *App) registerController(controller controllerRegistration, appContainer
 	definition := controller.definition
 	for _, route := range definition.Routes {
 		fullPath := joinRoutePath(definition.BasePath, route.Path)
-		key := strings.ToUpper(route.Method) + " " + fullPath
-		if _, ok := seenRoutes[key]; ok {
-			return duplicateRouteError(key)
-		}
-		seenRoutes[key] = struct{}{}
 		middlewares, guards, err := resolveRouteComponents(definition, route, appContainer)
 		if err != nil {
 			return err
@@ -300,17 +298,51 @@ func (a *App) registerController(controller controllerRegistration, appContainer
 		if !definition.Hidden && !route.Metadata.Hidden {
 			a.routes = append(a.routes, newOpenAPIRoute(definition, route, fullPath))
 		}
-		a.router.Handle(RouteRuntimeConfig{
+		if err := a.registerRoute(seenRoutes, RouteRuntimeConfig{
 			Method:     route.Method,
 			Path:       fullPath,
 			Handler:    route.Handler,
 			Middleware: middlewares,
 			Guards:     guards,
 			Validator:  a.validator,
-		})
+		}); err != nil {
+			return err
+		}
 		a.logBoot("GEST route: %s %s -> %s.%s", strings.ToUpper(route.Method), fullPath, definition.Name, route.Name)
 	}
 
+	return nil
+}
+
+func (a *App) registerModuleRoutes(appContainer Container, seenRoutes map[string]struct{}) error {
+	for _, provider := range a.lifecycle {
+		registrar, ok := provider.instance.(RouteRegistrar)
+		if !ok {
+			continue
+		}
+		context := RouteRegistrationContext{
+			Container: appContainer,
+			Register: func(route RouteRuntimeConfig) error {
+				if route.Validator == nil {
+					route.Validator = a.validator
+				}
+				return a.registerRoute(seenRoutes, route)
+			},
+		}
+		if err := registrar.RegisterRoutes(context); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) registerRoute(seenRoutes map[string]struct{}, route RouteRuntimeConfig) error {
+	key := strings.ToUpper(route.Method) + " " + route.Path
+	if _, ok := seenRoutes[key]; ok {
+		return duplicateRouteError(key)
+	}
+	seenRoutes[key] = struct{}{}
+	a.router.Handle(route)
 	return nil
 }
 

@@ -60,6 +60,10 @@ func (c *CLI) runGenerateProcessor(ctx context.Context, args []string) error {
 	return c.runGenerateComponent(ctx, args, componentProcessor)
 }
 
+func (c *CLI) runGenerateGateway(ctx context.Context, args []string) error {
+	return c.runGenerateComponent(ctx, args, componentGateway)
+}
+
 func (c *CLI) runGenerateResource(ctx context.Context, args []string) error {
 	select {
 	case <-ctx.Done():
@@ -123,6 +127,7 @@ const (
 	componentListener   componentKind = "listener"
 	componentTask       componentKind = "task"
 	componentProcessor  componentKind = "processor"
+	componentGateway    componentKind = "gateway"
 )
 
 type componentOptions struct {
@@ -596,6 +601,34 @@ func (p *%sProcessor) Process(ctx context.Context, job %sJob) error {
 	return nil
 }
 `, componentPath.packageName, componentPath.typePrefix, queueName(componentPath), componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix)
+	case componentGateway:
+		source = fmt.Sprintf(`package %s
+
+import (
+	"context"
+
+	"github.com/r6m/gest/modules/websocket"
+)
+
+type %sMessage struct {
+	Body string `+"`json:\"body\"`"+`
+}
+
+// @Gateway("/ws/%s")
+type %sGateway struct{}
+
+func New%sGateway() *%sGateway {
+	return &%sGateway{}
+}
+
+// @Subscribe("%s.message")
+func (g *%sGateway) HandleMessage(ctx context.Context, client *websocket.Client, msg %sMessage) error {
+	_ = ctx
+	_ = client
+	_ = msg
+	return nil
+}
+`, componentPath.packageName, componentPath.typePrefix, routePath(componentPath), componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix, eventNamePrefix(componentPath), componentPath.typePrefix, componentPath.typePrefix)
 	default:
 		return nil, fmt.Errorf("unknown component kind %q", kind)
 	}
@@ -695,6 +728,26 @@ func TestNew%sProcessor(t *testing.T) {
 	}
 }
 `, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix)
+	case componentGateway:
+		source = fmt.Sprintf(`package %s
+
+import (
+	"context"
+	"testing"
+
+	"github.com/r6m/gest/modules/websocket"
+)
+
+func TestNew%sGateway(t *testing.T) {
+	gateway := New%sGateway()
+	if gateway == nil {
+		t.Fatal("gateway is nil")
+	}
+	if err := gateway.HandleMessage(context.Background(), &websocket.Client{}, %sMessage{Body: "sample"}); err != nil {
+		t.Fatalf("HandleMessage returned error: %%v", err)
+	}
+}
+`, componentPath.packageName, componentPath.typePrefix, componentPath.typePrefix, componentPath.typePrefix)
 	default:
 		return nil, fmt.Errorf("unknown component kind %q", kind)
 	}
@@ -976,11 +1029,20 @@ func updateModuleProviders(path string, workDir string, componentPath generatorP
 		return false, nil
 	}
 
+	edits := []textEdit{}
 	edit, err := providersEdit(fileSet, parsed, call)
 	if err != nil {
 		return false, err
 	}
-	updated := applyEdits(content, []textEdit{edit})
+	edits = append(edits, edit)
+	if kind == componentGateway && !hasImport(parsed, "github.com/r6m/gest/modules/websocket") {
+		edit, err := importEdit(fileSet, parsed, "github.com/r6m/gest/modules/websocket")
+		if err != nil {
+			return false, err
+		}
+		edits = append(edits, edit)
+	}
+	updated := applyEdits(content, edits)
 	formatted, err := format.Source(updated)
 	if err != nil {
 		return false, fmt.Errorf("format module %s: %w", slashRel(workDir, path), err)
@@ -1199,6 +1261,8 @@ func providerCall(componentPath generatorPath, kind componentKind) string {
 		return "gest.Provide(New" + componentPath.typePrefix + "Task)"
 	case componentProcessor:
 		return "gest.Provide(New" + componentPath.typePrefix + "Processor)"
+	case componentGateway:
+		return "websocket.Gateway(New" + componentPath.typePrefix + "Gateway)"
 	default:
 		return ""
 	}

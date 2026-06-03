@@ -24,6 +24,7 @@ type CLI struct {
 	GenerateListener   Handler
 	GenerateTask       Handler
 	GenerateProcessor  Handler
+	GenerateGateway    Handler
 	GenerateResource   Handler
 	WorkDir            string
 	Stdout             io.Writer
@@ -43,6 +44,7 @@ func New() *CLI {
 	command.GenerateListener = command.runGenerateListener
 	command.GenerateTask = command.runGenerateTask
 	command.GenerateProcessor = command.runGenerateProcessor
+	command.GenerateGateway = command.runGenerateGateway
 	command.GenerateResource = command.runGenerateResource
 	return command
 }
@@ -80,6 +82,9 @@ func (c *CLI) withDefaults(stdout, stderr io.Writer) *CLI {
 	}
 	if c.GenerateProcessor == nil {
 		c.GenerateProcessor = c.runGenerateProcessor
+	}
+	if c.GenerateGateway == nil {
+		c.GenerateGateway = c.runGenerateGateway
 	}
 	if c.GenerateResource == nil {
 		c.GenerateResource = c.runGenerateResource
@@ -138,7 +143,7 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 
 func (c *CLI) runGenerateShortcut(ctx context.Context, args []string) error {
 	if len(args) == 0 || isHelp(args[0]) {
-		return errors.New("g requires a subcommand: module, controller, service, listener, task, processor, or resource")
+		return errors.New("g requires a subcommand: module, controller, service, listener, task, processor, gateway, or resource")
 	}
 
 	switch args[0] {
@@ -154,6 +159,8 @@ func (c *CLI) runGenerateShortcut(ctx context.Context, args []string) error {
 		return runHandler(ctx, c.GenerateTask, args[1:])
 	case "processor":
 		return runHandler(ctx, c.GenerateProcessor, args[1:])
+	case "gateway":
+		return runHandler(ctx, c.GenerateGateway, args[1:])
 	case "resource":
 		return runHandler(ctx, c.GenerateResource, args[1:])
 	default:
@@ -196,6 +203,7 @@ Commands:
   gest g listener    scaffold an event listener
   gest g task        scaffold a scheduled task
   gest g processor   scaffold a queue processor
+  gest g gateway     scaffold a WebSocket gateway
   gest g resource    scaffold a resource
   gest help          show this help
 `

@@ -138,6 +138,36 @@ func TestGenerateProcessorCreatesProcessorFile(t *testing.T) {
 	assertOutputContains(t, testContent, "func TestNewTeamProcessor")
 }
 
+func TestGenerateGatewayCreatesNestedGatewayAndTestFiles(t *testing.T) {
+	root := moduleFixture(t, nil)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "gateway", "project/team", "--no-update-module"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%q", code, stderr.String())
+	}
+	content := readFile(t, filepath.Join(root, "internal", "project", "team", "team.gateway.go"))
+	assertOutputContains(t, stdout.String(), "CREATE internal/project/team/team.gateway.go", "SKIP parent module update")
+	assertOutputContains(t, content,
+		"package team",
+		`// @Gateway("/ws/team")`,
+		"type TeamGateway struct{}",
+		"func NewTeamGateway() *TeamGateway",
+		`// @Subscribe("project.team.message")`,
+		"func (g *TeamGateway) HandleMessage(ctx context.Context, client *websocket.Client, msg TeamMessage) error",
+	)
+	for _, unexpected := range []string{"auth", "database", "queue", "events"} {
+		assertOutputExcludes(t, content, unexpected)
+	}
+	testContent := readFile(t, filepath.Join(root, "internal", "project", "team", "team.gateway_test.go"))
+	assertOutputContains(t, stdout.String(), "CREATE internal/project/team/team.gateway_test.go")
+	assertOutputContains(t, testContent, "func TestNewTeamGateway")
+}
+
 func TestGenerateTaskNoTestSkipsTestFile(t *testing.T) {
 	root := moduleFixture(t, nil)
 	var stdout bytes.Buffer
@@ -168,6 +198,22 @@ func TestGenerateProcessorNoTestSkipsTestFile(t *testing.T) {
 	}
 	assertFileMissing(t, filepath.Join(root, "internal", "project", "team", "team.processor_test.go"))
 	assertOutputExcludes(t, stdout.String(), "team.processor_test.go")
+}
+
+func TestGenerateGatewayNoTestSkipsTestFile(t *testing.T) {
+	root := moduleFixture(t, nil)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "gateway", "project/team", "--no-update-module", "--no-test"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%q", code, stderr.String())
+	}
+	assertFileMissing(t, filepath.Join(root, "internal", "project", "team", "team.gateway_test.go"))
+	assertOutputExcludes(t, stdout.String(), "team.gateway_test.go")
 }
 
 func TestGenerateControllerNoTestSkipsTestFile(t *testing.T) {
@@ -298,6 +344,49 @@ func TestGenerateProcessorUpdatesModuleProviders(t *testing.T) {
 	)
 }
 
+func TestGenerateGatewayUpdatesModuleProviders(t *testing.T) {
+	root := moduleFixture(t, map[string]string{
+		"internal/project/team/team.module.go": moduleSource("team", "project.team"),
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "gateway", "project/team"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	module := readFile(t, filepath.Join(root, "internal", "project", "team", "team.module.go"))
+	assertOutputContains(t, stdout.String(), "UPDATE internal/project/team/team.module.go")
+	assertOutputContains(t, module,
+		`"github.com/r6m/gest/modules/websocket"`,
+		"Providers: gest.Providers(",
+		"websocket.Gateway(NewTeamGateway),",
+	)
+}
+
+func TestGenerateGatewayNoUpdateModuleSkipsModule(t *testing.T) {
+	root := moduleFixture(t, map[string]string{
+		"internal/project/team/team.module.go": moduleSource("team", "project.team"),
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "gateway", "project/team", "--no-update-module"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%q", code, stderr.String())
+	}
+	module := readFile(t, filepath.Join(root, "internal", "project", "team", "team.module.go"))
+	assertOutputContains(t, stdout.String(), "SKIP parent module update")
+	assertOutputExcludes(t, module, "NewTeamGateway")
+	assertOutputExcludes(t, module, "modules/websocket")
+}
+
 func TestGenerateProcessorDryRunWritesNothing(t *testing.T) {
 	root := moduleFixture(t, map[string]string{
 		"internal/project/team/team.module.go": moduleSource("team", "project.team"),
@@ -323,6 +412,30 @@ func TestGenerateProcessorDryRunWritesNothing(t *testing.T) {
 	)
 }
 
+func TestGenerateGatewayDryRunWritesNothing(t *testing.T) {
+	root := moduleFixture(t, map[string]string{
+		"internal/project/team/team.module.go": moduleSource("team", "project.team"),
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "gateway", "project/team", "--dry-run"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%q", code, stderr.String())
+	}
+	assertFileMissing(t, filepath.Join(root, "internal", "project", "team", "team.gateway.go"))
+	module := readFile(t, filepath.Join(root, "internal", "project", "team", "team.module.go"))
+	assertOutputExcludes(t, module, "NewTeamGateway")
+	assertOutputExcludes(t, module, "modules/websocket")
+	assertOutputContains(t, stdout.String(),
+		"DRY-RUN CREATE internal/project/team/team.gateway.go",
+		"DRY-RUN UPDATE internal/project/team/team.module.go",
+	)
+}
+
 func TestGenerateProcessorForceOverwritesTargetFile(t *testing.T) {
 	root := moduleFixture(t, map[string]string{
 		"internal/project/team/team.processor.go": "package team\n\nconst Old = true\n",
@@ -341,6 +454,25 @@ func TestGenerateProcessorForceOverwritesTargetFile(t *testing.T) {
 	if strings.Contains(content, "Old") {
 		t.Fatalf("expected processor file overwrite:\n%s", content)
 	}
+}
+
+func TestGenerateGatewayForceOverwritesTargetFile(t *testing.T) {
+	root := moduleFixture(t, map[string]string{
+		"internal/project/team/team.gateway.go": "package team\n\nconst Old = true\n",
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command := New()
+	command.WorkDir = root
+	code := command.Run(context.Background(), []string{"g", "gateway", "project/team", "--force", "--no-update-module"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%q", code, stderr.String())
+	}
+	content := readFile(t, filepath.Join(root, "internal", "project", "team", "team.gateway.go"))
+	assertOutputExcludes(t, content, "Old")
+	assertOutputContains(t, content, "type TeamGateway struct{}")
 }
 
 func TestGenerateComponentDryRunWritesNothing(t *testing.T) {
@@ -440,6 +572,20 @@ func TestGenerateComponentsApplyGofmt(t *testing.T) {
 	}
 	content := readFile(t, filepath.Join(root, "internal", "project", "team", "team.controller.go"))
 	assertOutputContains(t, content, "func NewTeamController() *TeamController {\n\treturn &TeamController{}")
+}
+
+func TestGenerateGatewayAppliesGofmt(t *testing.T) {
+	root := moduleFixture(t, nil)
+	command := New()
+	command.WorkDir = root
+
+	code := command.Run(context.Background(), []string{"g", "gateway", "project/team", "--no-update-module"}, ioDiscard{}, ioDiscard{})
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	content := readFile(t, filepath.Join(root, "internal", "project", "team", "team.gateway.go"))
+	assertOutputContains(t, content, "func NewTeamGateway() *TeamGateway {\n\treturn &TeamGateway{}")
 }
 
 func moduleSource(packageName string, moduleName string) string {

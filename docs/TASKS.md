@@ -421,9 +421,9 @@ Design rules:
 | --- | --- | --- | --- |
 | P11.1 | Done | Add WebSocket module API | Add `modules/websocket` with module options, client type, connection lifecycle hooks, JSON message codec, and adapter boundary. Start with one net-http compatible adapter. |
 | P11.2 | Done | Add gateway metadata generator | Parse `@Gateway("path")` and `@Subscribe("event")`, validate gateway handler signatures, and emit deterministic `GestGateway()` metadata using public WebSocket module APIs. |
-| P11.3 | Planned | Add gateway registration runtime | Have the WebSocket module resolve gateway providers through normal DI, register upgrade routes, dispatch JSON messages by event, and handle cancellation/close errors predictably. |
-| P11.4 | Planned | Add `gest g gateway` | Generate a gateway provider with one example subscription, update the nearest module, generate tests by default, and support nested paths, dry-run, force, no-update, and no-test flags. |
-| P11.5 | Planned | Add WebSocket checkpoint tests | Verify generated metadata, route upgrade behavior, message dispatch, middleware/guard-before-upgrade behavior where practical, shutdown cleanup, no core runtime imports, and no hidden registries. |
+| P11.3 | Done | Add gateway registration runtime | Have the WebSocket module resolve gateway providers through normal DI, register upgrade routes, dispatch JSON messages by event, and handle cancellation/close errors predictably. |
+| P11.4 | Done | Add `gest g gateway` | Generate a gateway provider with one example subscription, update the nearest module, generate tests by default, and support nested paths, dry-run, force, no-update, and no-test flags. |
+| P11.5 | Done | Add WebSocket checkpoint tests | Verify generated metadata, route upgrade behavior, message dispatch, middleware/guard-before-upgrade behavior where practical, shutdown cleanup, no core runtime imports, and no hidden registries. |
 
 Exit criteria:
 
